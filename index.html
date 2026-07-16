@@ -279,6 +279,49 @@
     background: var(--surface-1);
   }
 
+  /* ---------- Live score card ---------- */
+  .live-card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+
+  .live-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .live-label {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin: 0;
+  }
+
+  .live-pulse {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .live-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--diverge-blue);
+    display: inline-block;
+  }
+
+  .live-figure {
+    font-size: 36px;
+    font-weight: 600;
+    margin-top: 8px;
+  }
+
   /* ---------- Note card ---------- */
   .note-card {
     background: var(--surface-1);
@@ -387,6 +430,14 @@
     <p class="updated-note" id="updated-note"></p>
   </section>
 
+  <section class="live-card">
+    <div class="live-header">
+      <p class="live-label">실시간 계산값 (5분마다 자동 갱신)</p>
+      <span class="live-pulse"><span class="live-dot"></span><span id="live-updated">불러오는 중...</span></span>
+    </div>
+    <p class="live-figure" id="live-score">–</p>
+  </section>
+
   <section class="note-card">
     <p class="note-title">오늘의 신호에 메모 남기기</p>
     <textarea id="note-input" placeholder="예: 실제로 커버드콜 20% 매수함"></textarea>
@@ -436,6 +487,30 @@
   // publishable key는 브라우저에 공개돼도 되는 키입니다 (RLS로 보호됨).
   const SUPABASE_URL = "https://wckohdcjpjlzeaiehmzs.supabase.co";
   const SUPABASE_KEY = "sb_publishable_4fPOT_f1VwEvH4gEXumgjg_JH-7X_mY";
+
+  async function fetchLiveScore() {
+    const scoreEl = document.getElementById("live-score");
+    const updatedEl = document.getElementById("live-updated");
+    try {
+      const res = await fetch(
+        `${SUPABASE_URL}/rest/v1/live_scores?order=computed_at.desc&limit=1`,
+        { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+      );
+      if (!res.ok) throw new Error("서버 응답 오류 (" + res.status + ")");
+      const rows = await res.json();
+      if (rows.length === 0) {
+        scoreEl.textContent = "아직 기록 없음";
+        updatedEl.textContent = "";
+        return;
+      }
+      scoreEl.textContent = Number(rows[0].score).toFixed(1);
+      const computedAt = new Date(rows[0].computed_at);
+      updatedEl.textContent = computedAt.toLocaleTimeString("ko-KR") + " 갱신";
+    } catch (err) {
+      scoreEl.textContent = "불러오기 실패";
+      updatedEl.textContent = "";
+    }
+  }
 
   async function fetchNotes() {
     const listEl = document.getElementById("note-list");
@@ -765,6 +840,8 @@
   renderHero();
   renderAll("90");
   fetchNotes();
+  fetchLiveScore();
+  setInterval(fetchLiveScore, 60000); // 화면을 열어둔 동안 1분마다 최신값 재조회
 })();
 </script>
 </body>
