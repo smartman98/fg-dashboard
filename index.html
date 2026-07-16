@@ -691,10 +691,12 @@
 
       const score = Number(rows[0].score);
       currentHero = { score, rating: score < 45 ? "fear" : score > 55 ? "greed" : "neutral", signal: judgeSignal(score) };
-      const asOf = new Date(rows[0].as_of);
-      const dateLabel = asOf.toLocaleDateString("ko-KR");
-      const timeLabel = asOf.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
-      renderHero(`${dateLabel} ${timeLabel} CNN 실제값 기준`);
+      // as_of는 CNN이 그날 값에 붙이는 고정 날짜(UTC 자정=한국시간 오전 9시)라 "지금"을 안 뜻해요.
+      // 대신 우리가 실제로 마지막에 확인(GitHub Actions 실행)한 시각을 보여줍니다.
+      const checkedAt = new Date(rows[0].computed_at);
+      const dateLabel = checkedAt.toLocaleDateString("ko-KR");
+      const timeLabel = checkedAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+      renderHero(`${dateLabel} ${timeLabel} 기준 (CNN 실제값)`);
     } catch (err) {
       // 실패하면 마지막으로 보여주던 값을 그대로 유지 (화면이 깨지지 않게)
     }
