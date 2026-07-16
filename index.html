@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>F&G 지수 대시보드</title>
+<style>
+  .viz-root {
+    color-scheme: light;
+    --surface-1:      #fcfcfb;
+    --page-plane:     #f9f9f7;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --gridline:       #e1e0d9;
+    --baseline:       #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+
+    --diverge-blue:   #2a78d6;  /* 탐욕(위) 쪽 */
+    --diverge-red:    #e34948;  /* 공포(아래) 쪽 */
+    --diverge-neutral:#f0efec;
+    --diverge-blue-wash: rgba(42,120,214,0.10);
+    --diverge-red-wash:  rgba(227,73,72,0.10);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --surface-1:      #1a1a19;
+      --page-plane:     #0d0d0d;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --gridline:       #2c2c2a;
+      --baseline:       #383835;
+      --border:         rgba(255,255,255,0.10);
+
+      --diverge-blue:   #3987e5;
+      --diverge-red:    #e66767;
+      --diverge-neutral:#383835;
+      --diverge-blue-wash: rgba(57,135,229,0.14);
+      --diverge-red-wash:  rgba(230,103,103,0.14);
+    }
+  }
+  :root[data-theme="dark"] .viz-root {
+    color-scheme: dark;
+    --surface-1:      #1a1a19;
+    --page-plane:     #0d0d0d;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --gridline:       #2c2c2a;
+    --baseline:       #383835;
+    --border:         rgba(255,255,255,0.10);
+
+    --diverge-blue:   #3987e5;
+    --diverge-red:    #e66767;
+    --diverge-neutral:#383835;
+    --diverge-blue-wash: rgba(57,135,229,0.14);
+    --diverge-red-wash:  rgba(230,103,103,0.14);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--page-plane);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden;
+    clip: rect(0,0,0,0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 32px 20px 60px;
+  }
+
+  h1 {
+    font-size: 20px;
+    margin: 0 0 24px;
+  }
+
+  /* ---------- Hero ---------- */
+  .hero-card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+
+  .hero-label {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin: 0 0 6px;
+  }
+
+  .hero-row {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+
+  .hero-figure {
+    font-size: 56px;
+    font-weight: 600;
+    line-height: 1;
+  }
+
+  .rating-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 6px 12px;
+    border-radius: 999px;
+  }
+
+  .rating-badge.fear-side {
+    background: var(--diverge-red-wash);
+    color: var(--diverge-red);
+  }
+  .rating-badge.greed-side {
+    background: var(--diverge-blue-wash);
+    color: var(--diverge-blue);
+  }
+  .rating-badge.neutral-side {
+    background: var(--diverge-neutral);
+    color: var(--text-secondary);
+  }
+
+  .signal-line {
+    margin-top: 14px;
+    font-size: 15px;
+    color: var(--text-primary);
+  }
+  .signal-line strong {
+    color: var(--text-primary);
+  }
+
+  .updated-note {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  /* ---------- Filters ---------- */
+  .filter-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .filter-btn {
+    font-size: 13px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface-1);
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+
+  .filter-btn.active {
+    background: var(--text-primary);
+    color: var(--surface-1);
+    border-color: var(--text-primary);
+  }
+
+  /* ---------- Chart card ---------- */
+  .chart-card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+    position: relative;
+  }
+
+  .chart-title {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 0 0 4px;
+  }
+
+  .chart-legend {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin: 0 0 12px;
+    display: flex;
+    gap: 16px;
+  }
+
+  .chart-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .legend-swatch {
+    width: 14px;
+    height: 2px;
+    border-radius: 1px;
+    display: inline-block;
+  }
+
+  svg.fg-chart {
+    width: 100%;
+    height: auto;
+    overflow: visible;
+  }
+
+  .tooltip {
+    position: absolute;
+    pointer-events: none;
+    background: var(--text-primary);
+    color: var(--surface-1);
+    font-size: 12px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    line-height: 1.5;
+    opacity: 0;
+    transition: opacity 0.08s ease;
+    white-space: nowrap;
+    z-index: 10;
+  }
+
+  .tooltip .tt-value {
+    font-weight: 700;
+    font-size: 13px;
+  }
+
+  .table-toggle {
+    margin-top: 12px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-decoration: underline;
+    padding: 0;
+  }
+
+  .table-wrap {
+    margin-top: 12px;
+    max-height: 260px;
+    overflow-y: auto;
+    border-top: 1px solid var(--gridline);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  th, td {
+    text-align: left;
+    padding: 6px 4px;
+    border-bottom: 1px solid var(--gridline);
+    font-variant-numeric: tabular-nums;
+  }
+
+  th {
+    color: var(--text-muted);
+    font-weight: 500;
+    position: sticky;
+    top: 0;
+    background: var(--surface-1);
+  }
+
+  /* ---------- Note card ---------- */
+  .note-card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+
+  .note-title {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 0 0 12px;
+  }
+
+  #note-input {
+    width: 100%;
+    min-height: 64px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--page-plane);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 14px;
+    resize: vertical;
+  }
+
+  .note-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+  }
+
+  #note-save-btn {
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 18px;
+    border-radius: 999px;
+    border: none;
+    background: var(--text-primary);
+    color: var(--surface-1);
+    cursor: pointer;
+  }
+
+  #note-save-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  .note-status {
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .note-status.error {
+    color: var(--diverge-red);
+  }
+  .note-status.success {
+    color: var(--text-secondary);
+  }
+
+  .note-list {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--gridline);
+  }
+
+  .note-item {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--gridline);
+  }
+
+  .note-item:last-child {
+    border-bottom: none;
+  }
+
+  .note-item-meta {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin: 0 0 4px;
+  }
+
+  .note-item-text {
+    font-size: 14px;
+    color: var(--text-primary);
+    margin: 0;
+    white-space: pre-wrap;
+  }
+</style>
+</head>
+<body>
+<div class="viz-root">
+<main>
+  <h2 class="sr-only">FABOT 공포·탐욕 지수 대시보드. 오늘의 점수, 매매 신호, 2009년부터 오늘까지의 F&G 지수 추이 차트를 보여줍니다.</h2>
+
+  <h1>F&G 지수 대시보드</h1>
+
+  <section class="hero-card">
+    <p class="hero-label">오늘의 F&G 지수</p>
+    <div class="hero-row">
+      <span class="hero-figure" id="hero-score">–</span>
+      <span class="rating-badge" id="rating-badge">–</span>
+    </div>
+    <p class="signal-line">판정 신호: <strong id="signal-text">–</strong></p>
+    <p class="updated-note" id="updated-note"></p>
+  </section>
+
+  <section class="note-card">
+    <p class="note-title">오늘의 신호에 메모 남기기</p>
+    <textarea id="note-input" placeholder="예: 실제로 커버드콜 20% 매수함"></textarea>
+    <div class="note-actions">
+      <button id="note-save-btn">저장</button>
+      <span class="note-status" id="note-status"></span>
+    </div>
+    <div class="note-list" id="note-list">
+      <p class="note-status">기록을 불러오는 중...</p>
+    </div>
+  </section>
+
+  <div class="filter-row" id="filter-row">
+    <button class="filter-btn" data-range="30">최근 30일</button>
+    <button class="filter-btn active" data-range="90">최근 90일</button>
+    <button class="filter-btn" data-range="365">최근 1년</button>
+    <button class="filter-btn" data-range="all">전체</button>
+  </div>
+
+  <section class="chart-card">
+    <p class="chart-title">F&G 지수 추이</p>
+    <p class="chart-legend">
+      <span><span class="legend-swatch" style="background:var(--diverge-blue)"></span>탐욕 (50 이상)</span>
+      <span><span class="legend-swatch" style="background:var(--diverge-red)"></span>공포 (50 미만)</span>
+    </p>
+    <div style="position:relative;">
+      <svg class="fg-chart" id="chart" viewBox="0 0 640 260" role="img" aria-label="F&G 지수 추이 차트"></svg>
+      <div class="tooltip" id="tooltip"></div>
+    </div>
+    <button class="table-toggle" id="table-toggle">표로 보기</button>
+    <div class="table-wrap" id="table-wrap" hidden>
+      <table>
+        <thead><tr><th>날짜</th><th>F&G 점수</th></tr></thead>
+        <tbody id="table-body"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+</div>
+
+<script src="fg_data.js"></script>
+<script>
+(function () {
+  const history = FG_DATA.history; // [{date, score, source}], 오래된 순
+  const today = FG_DATA.today;
+
+  // publishable key는 브라우저에 공개돼도 되는 키입니다 (RLS로 보호됨).
+  const SUPABASE_URL = "https://wckohdcjpjlzeaiehmzs.supabase.co";
+  const SUPABASE_KEY = "sb_publishable_4fPOT_f1VwEvH4gEXumgjg_JH-7X_mY";
+
+  async function fetchNotes() {
+    const listEl = document.getElementById("note-list");
+    try {
+      const res = await fetch(
+        `${SUPABASE_URL}/rest/v1/signal_notes?order=created_at.desc&limit=20`,
+        { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+      );
+      if (!res.ok) throw new Error("서버 응답 오류 (" + res.status + ")");
+      const rows = await res.json();
+      renderNotes(rows);
+    } catch (err) {
+      listEl.innerHTML = "";
+      const p = document.createElement("p");
+      p.className = "note-status error";
+      p.textContent = "기록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.";
+      listEl.appendChild(p);
+    }
+  }
+
+  function renderNotes(rows) {
+    const listEl = document.getElementById("note-list");
+    listEl.innerHTML = "";
+    if (rows.length === 0) {
+      const p = document.createElement("p");
+      p.className = "note-status";
+      p.textContent = "아직 남긴 기록이 없습니다.";
+      listEl.appendChild(p);
+      return;
+    }
+    for (const row of rows) {
+      const item = document.createElement("div");
+      item.className = "note-item";
+
+      const meta = document.createElement("p");
+      meta.className = "note-item-meta";
+      const when = new Date(row.created_at).toLocaleString("ko-KR");
+      meta.textContent = `${when} · F&G ${Number(row.fg_score).toFixed(1)} (${row.rating})`;
+
+      const text = document.createElement("p");
+      text.className = "note-item-text";
+      text.textContent = row.note;
+
+      item.appendChild(meta);
+      item.appendChild(text);
+      listEl.appendChild(item);
+    }
+  }
+
+  async function saveNote() {
+    const input = document.getElementById("note-input");
+    const statusEl = document.getElementById("note-status");
+    const btn = document.getElementById("note-save-btn");
+    const noteText = input.value.trim();
+
+    if (!noteText) {
+      statusEl.className = "note-status error";
+      statusEl.textContent = "메모를 입력해 주세요.";
+      return;
+    }
+
+    btn.disabled = true;
+    statusEl.className = "note-status";
+    statusEl.textContent = "저장 중...";
+
+    try {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/signal_notes`, {
+        method: "POST",
+        headers: {
+          apikey: SUPABASE_KEY,
+          Authorization: `Bearer ${SUPABASE_KEY}`,
+          "Content-Type": "application/json",
+          Prefer: "return=representation",
+        },
+        body: JSON.stringify({
+          fg_score: today.score,
+          rating: today.rating,
+          signal: today.signal,
+          note: noteText,
+        }),
+      });
+      if (!res.ok) throw new Error("저장 실패 (" + res.status + ")");
+
+      statusEl.className = "note-status success";
+      statusEl.textContent = "저장했습니다.";
+      input.value = "";
+      fetchNotes();
+    } catch (err) {
+      statusEl.className = "note-status error";
+      statusEl.textContent = "저장하지 못했습니다. 잠시 후 다시 시도해 주세요.";
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  const RATING_LABELS = {
+    "extreme fear": "극단적 공포", "fear": "공포", "neutral": "중립",
+    "greed": "탐욕", "extreme greed": "극단적 탐욕",
+  };
+
+  function ratingSide(score) {
+    if (score < 45) return "fear-side";
+    if (score > 55) return "greed-side";
+    return "neutral-side";
+  }
+
+  function renderHero() {
+    document.getElementById("hero-score").textContent = today.score.toFixed(1);
+    const badge = document.getElementById("rating-badge");
+    badge.textContent = RATING_LABELS[today.rating] || today.rating;
+    badge.classList.add(ratingSide(today.score));
+    document.getElementById("signal-text").textContent = today.signal;
+    document.getElementById("updated-note").textContent = today.date + " 기준";
+  }
+
+  function filterRange(rangeKey) {
+    if (rangeKey === "all") return history;
+    const days = Number(rangeKey);
+    return history.slice(-days);
+  }
+
+  function renderTable(data) {
+    const tbody = document.getElementById("table-body");
+    tbody.innerHTML = "";
+    const recentFirst = data.slice().reverse();
+    for (const row of recentFirst) {
+      const tr = document.createElement("tr");
+      const tdDate = document.createElement("td");
+      tdDate.textContent = row.date;
+      const tdScore = document.createElement("td");
+      tdScore.textContent = row.score.toFixed(1);
+      tr.appendChild(tdDate);
+      tr.appendChild(tdScore);
+      tbody.appendChild(tr);
+    }
+  }
+
+  const CHART_W = 640, CHART_H = 260;
+  const PAD = { top: 16, right: 12, bottom: 24, left: 30 };
+  const plotW = CHART_W - PAD.left - PAD.right;
+  const plotH = CHART_H - PAD.top - PAD.bottom;
+
+  function xScale(i, n) {
+    if (n <= 1) return PAD.left;
+    return PAD.left + (i / (n - 1)) * plotW;
+  }
+  function yScale(v) {
+    return PAD.top + (1 - v / 100) * plotH;
+  }
+
+  function renderChart(data) {
+    const svg = document.getElementById("chart");
+    svg.innerHTML = "";
+    const n = data.length;
+    if (n === 0) return;
+
+    const ns = "http://www.w3.org/2000/svg";
+    const baselineY = yScale(50);
+
+    // 그리드라인 (0/50/100)
+    [0, 50, 100].forEach((v) => {
+      const line = document.createElementNS(ns, "line");
+      line.setAttribute("x1", PAD.left);
+      line.setAttribute("x2", CHART_W - PAD.right);
+      line.setAttribute("y1", yScale(v));
+      line.setAttribute("y2", yScale(v));
+      line.setAttribute("stroke", v === 50 ? "var(--baseline)" : "var(--gridline)");
+      line.setAttribute("stroke-width", "1");
+      svg.appendChild(line);
+
+      const label = document.createElementNS(ns, "text");
+      label.setAttribute("x", PAD.left - 6);
+      label.setAttribute("y", yScale(v) + 4);
+      label.setAttribute("text-anchor", "end");
+      label.setAttribute("font-size", "10");
+      label.setAttribute("fill", "var(--text-muted)");
+      label.textContent = v;
+      svg.appendChild(label);
+    });
+
+    // 위(탐욕)/아래(공포) 영역 채우기 — 50을 기준으로 클램프한 값으로 면적을 그리면
+    // 자연스럽게 50 교차 지점에서 영역이 끊깁니다.
+    function buildAreaPath(clampFn) {
+      let d = `M ${xScale(0, n)} ${baselineY} `;
+      for (let i = 0; i < n; i++) {
+        d += `L ${xScale(i, n)} ${yScale(clampFn(data[i].score))} `;
+      }
+      d += `L ${xScale(n - 1, n)} ${baselineY} Z`;
+      return d;
+    }
+
+    const abovePath = document.createElementNS(ns, "path");
+    abovePath.setAttribute("d", buildAreaPath((v) => Math.max(v, 50)));
+    abovePath.setAttribute("fill", "var(--diverge-blue-wash)");
+    svg.appendChild(abovePath);
+
+    const belowPath = document.createElementNS(ns, "path");
+    belowPath.setAttribute("d", buildAreaPath((v) => Math.min(v, 50)));
+    belowPath.setAttribute("fill", "var(--diverge-red-wash)");
+    svg.appendChild(belowPath);
+
+    // 실제 값 선 (중립 잉크 색)
+    let lineD = "";
+    data.forEach((d, i) => {
+      lineD += (i === 0 ? "M " : "L ") + xScale(i, n) + " " + yScale(d.score) + " ";
+    });
+    const linePath = document.createElementNS(ns, "path");
+    linePath.setAttribute("d", lineD);
+    linePath.setAttribute("fill", "none");
+    linePath.setAttribute("stroke", "var(--text-secondary)");
+    linePath.setAttribute("stroke-width", "2");
+    linePath.setAttribute("stroke-linejoin", "round");
+    linePath.setAttribute("stroke-linecap", "round");
+    svg.appendChild(linePath);
+
+    // 끝점 표시 + 직접 라벨 (오늘 값)
+    const lastX = xScale(n - 1, n), lastY = yScale(data[n - 1].score);
+    const endDot = document.createElementNS(ns, "circle");
+    endDot.setAttribute("cx", lastX);
+    endDot.setAttribute("cy", lastY);
+    endDot.setAttribute("r", "4");
+    endDot.setAttribute("fill", data[n - 1].score >= 50 ? "var(--diverge-blue)" : "var(--diverge-red)");
+    endDot.setAttribute("stroke", "var(--surface-1)");
+    endDot.setAttribute("stroke-width", "2");
+    svg.appendChild(endDot);
+
+    const endLabel = document.createElementNS(ns, "text");
+    endLabel.setAttribute("x", lastX - 6);
+    endLabel.setAttribute("y", lastY - 10);
+    endLabel.setAttribute("text-anchor", "end");
+    endLabel.setAttribute("font-size", "12");
+    endLabel.setAttribute("font-weight", "700");
+    endLabel.setAttribute("fill", "var(--text-primary)");
+    endLabel.textContent = data[n - 1].score.toFixed(1);
+    svg.appendChild(endLabel);
+
+    // ---- 크로스헤어 + 툴팁 (hover) ----
+    const crosshair = document.createElementNS(ns, "line");
+    crosshair.setAttribute("y1", PAD.top);
+    crosshair.setAttribute("y2", CHART_H - PAD.bottom);
+    crosshair.setAttribute("stroke", "var(--text-muted)");
+    crosshair.setAttribute("stroke-width", "1");
+    crosshair.setAttribute("visibility", "hidden");
+    svg.appendChild(crosshair);
+
+    const hoverDot = document.createElementNS(ns, "circle");
+    hoverDot.setAttribute("r", "5");
+    hoverDot.setAttribute("stroke", "var(--surface-1)");
+    hoverDot.setAttribute("stroke-width", "2");
+    hoverDot.setAttribute("visibility", "hidden");
+    svg.appendChild(hoverDot);
+
+    const hitArea = document.createElementNS(ns, "rect");
+    hitArea.setAttribute("x", PAD.left);
+    hitArea.setAttribute("y", PAD.top);
+    hitArea.setAttribute("width", plotW);
+    hitArea.setAttribute("height", plotH);
+    hitArea.setAttribute("fill", "transparent");
+    svg.appendChild(hitArea);
+
+    const tooltip = document.getElementById("tooltip");
+
+    function showTooltipAt(clientEvtX) {
+      const rect = svg.getBoundingClientRect();
+      const relX = ((clientEvtX - rect.left) / rect.width) * CHART_W;
+      let idx = Math.round(((relX - PAD.left) / plotW) * (n - 1));
+      idx = Math.max(0, Math.min(n - 1, idx));
+
+      const px = xScale(idx, n), py = yScale(data[idx].score);
+      crosshair.setAttribute("x1", px);
+      crosshair.setAttribute("x2", px);
+      crosshair.setAttribute("visibility", "visible");
+      hoverDot.setAttribute("cx", px);
+      hoverDot.setAttribute("cy", py);
+      hoverDot.setAttribute("fill", data[idx].score >= 50 ? "var(--diverge-blue)" : "var(--diverge-red)");
+      hoverDot.setAttribute("visibility", "visible");
+
+      tooltip.style.opacity = "1";
+      tooltip.innerHTML = "";
+      const dateLine = document.createElement("div");
+      dateLine.textContent = data[idx].date;
+      const valueLine = document.createElement("div");
+      valueLine.className = "tt-value";
+      valueLine.textContent = data[idx].score.toFixed(1) + "점";
+      tooltip.appendChild(dateLine);
+      tooltip.appendChild(valueLine);
+
+      const svgPixelRect = svg.getBoundingClientRect();
+      const scaleX = svgPixelRect.width / CHART_W;
+      const tooltipX = px * scaleX;
+      tooltip.style.left = Math.min(tooltipX + 10, svgPixelRect.width - 110) + "px";
+      tooltip.style.top = (py * (svgPixelRect.height / CHART_H) - 40) + "px";
+    }
+
+    function hideTooltip() {
+      crosshair.setAttribute("visibility", "hidden");
+      hoverDot.setAttribute("visibility", "hidden");
+      tooltip.style.opacity = "0";
+    }
+
+    hitArea.addEventListener("pointermove", (e) => showTooltipAt(e.clientX));
+    hitArea.addEventListener("pointerleave", hideTooltip);
+  }
+
+  function renderAll(rangeKey) {
+    const data = filterRange(rangeKey);
+    renderChart(data);
+    renderTable(data);
+  }
+
+  document.getElementById("filter-row").addEventListener("click", (e) => {
+    const btn = e.target.closest(".filter-btn");
+    if (!btn) return;
+    document.querySelectorAll(".filter-btn").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    renderAll(btn.dataset.range);
+  });
+
+  document.getElementById("table-toggle").addEventListener("click", () => {
+    const wrap = document.getElementById("table-wrap");
+    wrap.hidden = !wrap.hidden;
+    document.getElementById("table-toggle").textContent = wrap.hidden ? "표로 보기" : "표 숨기기";
+  });
+
+  document.getElementById("note-save-btn").addEventListener("click", saveNote);
+
+  renderHero();
+  renderAll("90");
+  fetchNotes();
+})();
+</script>
+</body>
+</html>
