@@ -21,6 +21,9 @@
     --diverge-neutral:#f0efec;
     --diverge-blue-wash: rgba(42,120,214,0.10);
     --diverge-red-wash:  rgba(227,73,72,0.10);
+
+    --cat-1: #2a78d6;  /* 실제값(CNN) */
+    --cat-2: #1baf7a;  /* 우리 계산값 */
   }
   @media (prefers-color-scheme: dark) {
     :root:where(:not([data-theme="light"])) .viz-root {
@@ -39,6 +42,9 @@
       --diverge-neutral:#383835;
       --diverge-blue-wash: rgba(57,135,229,0.14);
       --diverge-red-wash:  rgba(230,103,103,0.14);
+
+      --cat-1: #3987e5;
+      --cat-2: #199e70;
     }
   }
   :root[data-theme="dark"] .viz-root {
@@ -57,6 +63,9 @@
     --diverge-neutral:#383835;
     --diverge-blue-wash: rgba(57,135,229,0.14);
     --diverge-red-wash:  rgba(230,103,103,0.14);
+
+    --cat-1: #3987e5;
+    --cat-2: #199e70;
   }
 
   * { box-sizing: border-box; }
@@ -212,6 +221,15 @@
     height: 2px;
     border-radius: 1px;
     display: inline-block;
+  }
+
+  .diff-stat {
+    font-size: 14px;
+    color: var(--text-primary);
+    margin: 0 0 14px;
+  }
+  .diff-stat strong {
+    font-weight: 700;
   }
 
   svg.fg-chart {
@@ -475,6 +493,26 @@
       </table>
     </div>
   </section>
+
+  <div class="filter-row" id="compare-filter-row">
+    <button class="filter-btn" data-range="30">최근 30일</button>
+    <button class="filter-btn active" data-range="90">최근 90일</button>
+    <button class="filter-btn" data-range="365">최근 1년</button>
+    <button class="filter-btn" data-range="all">전체 (2011~)</button>
+  </div>
+
+  <section class="chart-card">
+    <p class="chart-title">실제값(CNN) vs 우리 계산값 비교</p>
+    <p class="chart-legend">
+      <span><span class="legend-swatch" style="background:var(--cat-1)"></span>실제값 (CNN)</span>
+      <span><span class="legend-swatch" style="background:var(--cat-2)"></span>우리 계산값</span>
+    </p>
+    <p class="diff-stat" id="diff-stat"></p>
+    <div style="position:relative;">
+      <svg class="fg-chart" id="compare-chart" viewBox="0 0 640 260" role="img" aria-label="실제값과 계산값 비교 차트"></svg>
+      <div class="tooltip" id="compare-tooltip"></div>
+    </div>
+  </section>
 </main>
 </div>
 
@@ -483,6 +521,7 @@
 (function () {
   const history = FG_DATA.history; // [{date, score, source}], 오래된 순
   const today = FG_DATA.today;
+  const comparison = FG_DATA.comparison; // [{date, real, calculated}], 2011~오늘
 
   // publishable key는 브라우저에 공개돼도 되는 키입니다 (RLS로 보호됨).
   const SUPABASE_URL = "https://wckohdcjpjlzeaiehmzs.supabase.co";
@@ -854,12 +893,172 @@
     renderTable(data);
   }
 
+  // ---------- 실제값 vs 계산값 비교 차트 ----------
+
+  function filterCompareRange(rangeKey) {
+    if (rangeKey === "all") return comparison;
+    const days = Number(rangeKey);
+    return comparison.slice(-days);
+  }
+
+  function renderDiffStat(data) {
+    const statEl = document.getElementById("diff-stat");
+    if (data.length === 0) {
+      statEl.textContent = "";
+      return;
+    }
+    const diffs = data.map((d) => d.calculated - d.real);
+    const avg = diffs.reduce((a, b) => a + b, 0) / diffs.length;
+    const direction = avg > 0.5 ? "높게" : avg < -0.5 ? "낮게" : "비슷하게";
+    statEl.innerHTML = "";
+    const text = document.createElement("span");
+    text.textContent = "선택 기간 평균 차이: ";
+    const strong = document.createElement("strong");
+    strong.textContent = (avg >= 0 ? "+" : "") + avg.toFixed(1) + "점";
+    const tail = document.createElement("span");
+    tail.textContent = ` (우리 계산값이 실제보다 ${direction} 나옴)`;
+    statEl.appendChild(text);
+    statEl.appendChild(strong);
+    statEl.appendChild(tail);
+  }
+
+  function renderCompareChart(data) {
+    const svg = document.getElementById("compare-chart");
+    svg.innerHTML = "";
+    const n = data.length;
+    if (n === 0) return;
+
+    const ns = "http://www.w3.org/2000/svg";
+
+    [0, 50, 100].forEach((v) => {
+      const line = document.createElementNS(ns, "line");
+      line.setAttribute("x1", PAD.left);
+      line.setAttribute("x2", CHART_W - PAD.right);
+      line.setAttribute("y1", yScale(v));
+      line.setAttribute("y2", yScale(v));
+      line.setAttribute("stroke", "var(--gridline)");
+      line.setAttribute("stroke-width", "1");
+      svg.appendChild(line);
+
+      const label = document.createElementNS(ns, "text");
+      label.setAttribute("x", PAD.left - 6);
+      label.setAttribute("y", yScale(v) + 4);
+      label.setAttribute("text-anchor", "end");
+      label.setAttribute("font-size", "10");
+      label.setAttribute("fill", "var(--text-muted)");
+      label.textContent = v;
+      svg.appendChild(label);
+    });
+
+    function buildLine(key, color) {
+      let d = "";
+      data.forEach((row, i) => {
+        d += (i === 0 ? "M " : "L ") + xScale(i, n) + " " + yScale(row[key]) + " ";
+      });
+      const path = document.createElementNS(ns, "path");
+      path.setAttribute("d", d);
+      path.setAttribute("fill", "none");
+      path.setAttribute("stroke", color);
+      path.setAttribute("stroke-width", "2");
+      path.setAttribute("stroke-linejoin", "round");
+      path.setAttribute("stroke-linecap", "round");
+      svg.appendChild(path);
+    }
+
+    buildLine("real", "var(--cat-1)");
+    buildLine("calculated", "var(--cat-2)");
+
+    // 크로스헤어 + 툴팁
+    const crosshair = document.createElementNS(ns, "line");
+    crosshair.setAttribute("y1", PAD.top);
+    crosshair.setAttribute("y2", CHART_H - PAD.bottom);
+    crosshair.setAttribute("stroke", "var(--text-muted)");
+    crosshair.setAttribute("stroke-width", "1");
+    crosshair.setAttribute("visibility", "hidden");
+    svg.appendChild(crosshair);
+
+    const hitArea = document.createElementNS(ns, "rect");
+    hitArea.setAttribute("x", PAD.left);
+    hitArea.setAttribute("y", PAD.top);
+    hitArea.setAttribute("width", plotW);
+    hitArea.setAttribute("height", plotH);
+    hitArea.setAttribute("fill", "transparent");
+    svg.appendChild(hitArea);
+
+    const tooltip = document.getElementById("compare-tooltip");
+
+    function showTooltipAt(clientEvtX) {
+      const rect = svg.getBoundingClientRect();
+      const relX = ((clientEvtX - rect.left) / rect.width) * CHART_W;
+      let idx = Math.round(((relX - PAD.left) / plotW) * (n - 1));
+      idx = Math.max(0, Math.min(n - 1, idx));
+
+      const px = xScale(idx, n);
+      crosshair.setAttribute("x1", px);
+      crosshair.setAttribute("x2", px);
+      crosshair.setAttribute("visibility", "visible");
+
+      const row = data[idx];
+      tooltip.style.opacity = "1";
+      tooltip.innerHTML = "";
+      const dateLine = document.createElement("div");
+      dateLine.textContent = row.date;
+      const realLine = document.createElement("div");
+      realLine.innerHTML = "";
+      const realStrong = document.createElement("span");
+      realStrong.className = "tt-value";
+      realStrong.style.color = "var(--cat-1)";
+      realStrong.textContent = row.real.toFixed(1);
+      realLine.appendChild(document.createTextNode("실제 "));
+      realLine.appendChild(realStrong);
+      const calcLine = document.createElement("div");
+      const calcStrong = document.createElement("span");
+      calcStrong.className = "tt-value";
+      calcStrong.style.color = "var(--cat-2)";
+      calcStrong.textContent = row.calculated.toFixed(1);
+      calcLine.appendChild(document.createTextNode("계산 "));
+      calcLine.appendChild(calcStrong);
+
+      tooltip.appendChild(dateLine);
+      tooltip.appendChild(realLine);
+      tooltip.appendChild(calcLine);
+
+      const svgPixelRect = svg.getBoundingClientRect();
+      const scaleX = svgPixelRect.width / CHART_W;
+      const tooltipX = px * scaleX;
+      tooltip.style.left = Math.min(tooltipX + 10, svgPixelRect.width - 110) + "px";
+      tooltip.style.top = "10px";
+    }
+
+    function hideTooltip() {
+      crosshair.setAttribute("visibility", "hidden");
+      tooltip.style.opacity = "0";
+    }
+
+    hitArea.addEventListener("pointermove", (e) => showTooltipAt(e.clientX));
+    hitArea.addEventListener("pointerleave", hideTooltip);
+  }
+
+  function renderCompareAll(rangeKey) {
+    const data = filterCompareRange(rangeKey);
+    renderCompareChart(data);
+    renderDiffStat(data);
+  }
+
   document.getElementById("filter-row").addEventListener("click", (e) => {
     const btn = e.target.closest(".filter-btn");
     if (!btn) return;
-    document.querySelectorAll(".filter-btn").forEach((b) => b.classList.remove("active"));
+    document.querySelectorAll("#filter-row .filter-btn").forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
     renderAll(btn.dataset.range);
+  });
+
+  document.getElementById("compare-filter-row").addEventListener("click", (e) => {
+    const btn = e.target.closest(".filter-btn");
+    if (!btn) return;
+    document.querySelectorAll("#compare-filter-row .filter-btn").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    renderCompareAll(btn.dataset.range);
   });
 
   document.getElementById("table-toggle").addEventListener("click", () => {
@@ -872,6 +1071,7 @@
 
   renderHero(today.date + " 기준 (정적 스냅샷, 갱신 중...)");
   renderAll("90");
+  renderCompareAll("90");
   fetchNotes();
   fetchLiveScore();
   fetchCnnRealScore();
