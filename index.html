@@ -493,7 +493,7 @@
     const updatedEl = document.getElementById("live-updated");
     try {
       const res = await fetch(
-        `${SUPABASE_URL}/rest/v1/live_scores?order=computed_at.desc&limit=1`,
+        `${SUPABASE_URL}/rest/v1/live_scores?source=eq.price_based&order=computed_at.desc&limit=1`,
         { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
       );
       if (!res.ok) throw new Error("서버 응답 오류 (" + res.status + ")");
@@ -586,9 +586,9 @@
           Prefer: "return=representation",
         },
         body: JSON.stringify({
-          fg_score: today.score,
-          rating: today.rating,
-          signal: today.signal,
+          fg_score: currentHero.score,
+          rating: currentHero.rating,
+          signal: currentHero.signal,
           note: noteText,
         }),
       });
@@ -617,13 +617,46 @@
     return "neutral-side";
   }
 
-  function renderHero() {
-    document.getElementById("hero-score").textContent = today.score.toFixed(1);
+  function judgeSignal(score) {
+    if (score <= 15) return "TQQQ 매수 100% (극단적 공포)";
+    if (score <= 20) return "TQQQ 매수 50%";
+    if (score <= 25) return "TQQQ 매수 25%";
+    if (score >= 80) return "TQQQ 매도 전량 (극단적 탐욕)";
+    if (score >= 75) return "TQQQ 매도 50%";
+    if (score >= 35 && score <= 65) return "커버드콜 추가매수 20% (평시)";
+    return "대기 (매수/매도 조건 밖)";
+  }
+
+  // 실시간 CNN 값을 받아오기 전까지 보여줄 초기값 (정적 스냅샷)
+  let currentHero = { score: today.score, rating: today.rating, signal: today.signal };
+
+  function renderHero(whenLabel) {
+    document.getElementById("hero-score").textContent = currentHero.score.toFixed(1);
     const badge = document.getElementById("rating-badge");
-    badge.textContent = RATING_LABELS[today.rating] || today.rating;
-    badge.classList.add(ratingSide(today.score));
-    document.getElementById("signal-text").textContent = today.signal;
-    document.getElementById("updated-note").textContent = today.date + " 기준";
+    badge.className = "rating-badge";
+    badge.textContent = RATING_LABELS[currentHero.rating] || currentHero.rating;
+    badge.classList.add(ratingSide(currentHero.score));
+    document.getElementById("signal-text").textContent = currentHero.signal;
+    document.getElementById("updated-note").textContent = whenLabel;
+  }
+
+  async function fetchCnnRealScore() {
+    try {
+      const res = await fetch(
+        `${SUPABASE_URL}/rest/v1/live_scores?source=eq.cnn_real&order=computed_at.desc&limit=1`,
+        { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+      );
+      if (!res.ok) throw new Error("서버 응답 오류 (" + res.status + ")");
+      const rows = await res.json();
+      if (rows.length === 0) return; // 아직 GitHub Actions가 한 번도 안 돌았으면 정적 스냅샷 유지
+
+      const score = Number(rows[0].score);
+      currentHero = { score, rating: score < 45 ? "fear" : score > 55 ? "greed" : "neutral", signal: judgeSignal(score) };
+      const asOf = new Date(rows[0].as_of);
+      renderHero(asOf.toLocaleDateString("ko-KR") + " CNN 실제값 기준");
+    } catch (err) {
+      // 실패하면 마지막으로 보여주던 값을 그대로 유지 (화면이 깨지지 않게)
+    }
   }
 
   function filterRange(rangeKey) {
@@ -837,11 +870,13 @@
 
   document.getElementById("note-save-btn").addEventListener("click", saveNote);
 
-  renderHero();
+  renderHero(today.date + " 기준 (정적 스냅샷, 갱신 중...)");
   renderAll("90");
   fetchNotes();
   fetchLiveScore();
+  fetchCnnRealScore();
   setInterval(fetchLiveScore, 60000); // 화면을 열어둔 동안 1분마다 최신값 재조회
+  setInterval(fetchCnnRealScore, 60000);
 })();
 </script>
 </body>

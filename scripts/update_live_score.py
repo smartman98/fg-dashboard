@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 import requests
 
+from fetch_real_data import fetch_latest_score
 from price_fetcher import fetch_live_quote, fetch_price_history
 from price_proxy import compute_price_based_fg
 
@@ -48,7 +49,7 @@ def compute_live_score() -> dict:
     }
 
 
-def save_to_supabase(result: dict) -> None:
+def save_to_supabase(rows: list[dict]) -> None:
     supabase_url = os.environ["SUPABASE_URL"]
     supabase_key = os.environ["SUPABASE_KEY"]
 
@@ -59,14 +60,26 @@ def save_to_supabase(result: dict) -> None:
             "Authorization": f"Bearer {supabase_key}",
             "Content-Type": "application/json",
         },
-        json={"as_of": result["as_of"], "score": result["score"]},
+        json=rows,
         timeout=20,
     )
     response.raise_for_status()
 
 
 if __name__ == "__main__":
-    result = compute_live_score()
-    print(f"계산 완료: {result}")
-    save_to_supabase(result)
-    print("Supabase 저장 완료")
+    price_based = compute_live_score()
+    print(f"가격 기반 계산: {price_based}")
+
+    cnn_real = fetch_latest_score()
+    cnn_row = {
+        "as_of": cnn_real["date"].isoformat(),
+        "score": round(float(cnn_real["score"]), 2),
+        "source": "cnn_real",
+    }
+    print(f"CNN 실제값: {cnn_row}")
+
+    save_to_supabase([
+        {**price_based, "source": "price_based"},
+        cnn_row,
+    ])
+    print("Supabase 저장 완료 (둘 다)")
