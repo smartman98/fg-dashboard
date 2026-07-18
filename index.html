@@ -403,9 +403,8 @@
   }
 
   .note-list {
-    margin-top: 16px;
-    padding-top: 12px;
-    border-top: 1px solid var(--gridline);
+    margin-bottom: 16px;
+    padding-bottom: 4px;
   }
 
   .note-item {
@@ -458,13 +457,13 @@
 
   <section class="note-card">
     <p class="note-title">오늘의 신호에 메모 남기기</p>
-    <textarea id="note-input" placeholder="예: 실제로 커버드콜 20% 매수함"></textarea>
+    <div class="note-list" id="note-list">
+      <p class="note-status">기록을 불러오는 중...</p>
+    </div>
+    <textarea id="note-input" placeholder="메모를 남겨주세요"></textarea>
     <div class="note-actions">
       <button id="note-save-btn">저장</button>
       <span class="note-status" id="note-status"></span>
-    </div>
-    <div class="note-list" id="note-list">
-      <p class="note-status">기록을 불러오는 중...</p>
     </div>
   </section>
 
