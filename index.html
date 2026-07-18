@@ -455,18 +455,6 @@
     <p class="live-figure" id="live-score">–</p>
   </section>
 
-  <section class="note-card">
-    <p class="note-title">오늘의 신호에 메모 남기기</p>
-    <div class="note-list" id="note-list">
-      <p class="note-status">기록을 불러오는 중...</p>
-    </div>
-    <textarea id="note-input" placeholder="메모를 남겨주세요"></textarea>
-    <div class="note-actions">
-      <button id="note-save-btn">저장</button>
-      <span class="note-status" id="note-status"></span>
-    </div>
-  </section>
-
   <div class="filter-row" id="filter-row">
     <button class="filter-btn" data-range="30">최근 30일</button>
     <button class="filter-btn active" data-range="90">최근 90일</button>
@@ -510,6 +498,18 @@
     <div style="position:relative;">
       <svg class="fg-chart" id="compare-chart" viewBox="0 0 640 260" role="img" aria-label="실제값과 계산값 비교 차트"></svg>
       <div class="tooltip" id="compare-tooltip"></div>
+    </div>
+  </section>
+
+  <section class="note-card">
+    <p class="note-title">오늘의 신호에 메모 남기기</p>
+    <div class="note-list" id="note-list">
+      <p class="note-status">기록을 불러오는 중...</p>
+    </div>
+    <textarea id="note-input" placeholder="메모를 남겨주세요"></textarea>
+    <div class="note-actions">
+      <button id="note-save-btn">저장</button>
+      <span class="note-status" id="note-status"></span>
     </div>
   </section>
 </main>
