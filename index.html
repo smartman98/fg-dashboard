@@ -546,7 +546,7 @@
       const computedAt = new Date(rows[0].computed_at);
       const dateLabel = computedAt.toLocaleDateString("ko-KR");
       const timeLabel = computedAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
-      updatedEl.textContent = `${dateLabel} ${timeLabel} 갱신`;
+      updatedEl.textContent = `${dateLabel} ${timeLabel}`;
     } catch (err) {
       scoreEl.textContent = "불러오기 실패";
       updatedEl.textContent = "";
