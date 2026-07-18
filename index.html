@@ -929,7 +929,7 @@
     const strong = document.createElement("strong");
     strong.textContent = (avg >= 0 ? "+" : "") + avg.toFixed(1) + "점";
     const tail = document.createElement("span");
-    tail.textContent = ` (우리 계산값이 실제보다 ${direction} 나옴)`;
+    tail.textContent = ` (실시간 계산값이 F&G보다 ${direction} 나옴)`;
     statEl.appendChild(text);
     statEl.appendChild(strong);
     statEl.appendChild(tail);
