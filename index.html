@@ -544,7 +544,9 @@
       }
       scoreEl.textContent = Number(rows[0].score).toFixed(1);
       const computedAt = new Date(rows[0].computed_at);
-      updatedEl.textContent = computedAt.toLocaleTimeString("ko-KR") + " 갱신";
+      const dateLabel = computedAt.toLocaleDateString("ko-KR");
+      const timeLabel = computedAt.toLocaleTimeString("ko-KR");
+      updatedEl.textContent = `${dateLabel} ${timeLabel} 갱신`;
     } catch (err) {
       scoreEl.textContent = "불러오기 실패";
       updatedEl.textContent = "";
