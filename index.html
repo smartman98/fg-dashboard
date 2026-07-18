@@ -449,7 +449,7 @@
 
   <section class="live-card">
     <div class="live-header">
-      <p class="live-label">실시간 계산값 (5분마다 자동 갱신)</p>
+      <p class="live-label">실시간 계산 (5분마다 자동 갱신)</p>
       <span class="live-pulse"><span class="live-dot"></span><span id="live-updated">불러오는 중...</span></span>
     </div>
     <p class="live-figure" id="live-score">–</p>
@@ -697,7 +697,7 @@
       const checkedAt = new Date(rows[0].computed_at);
       const dateLabel = checkedAt.toLocaleDateString("ko-KR");
       const timeLabel = checkedAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
-      renderHero(`${dateLabel} ${timeLabel} 기준`);
+      renderHero(`${dateLabel} ${timeLabel}`);
     } catch (err) {
       // 실패하면 마지막으로 보여주던 값을 그대로 유지 (화면이 깨지지 않게)
     }
