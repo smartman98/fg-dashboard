@@ -41,14 +41,18 @@ def _rolling_zscore_to_0_100(series: pd.Series, invert: bool = False) -> pd.Seri
     return (50 + z * 15).clip(0, 100)
 
 
-def compute_price_based_fg(
+def compute_component_scores(
     qqq: pd.Series,
     vix: pd.Series,
     ief: pd.Series,
     hyg: pd.Series,
     lqd: pd.Series,
-) -> pd.Series:
-    """5가지 시장 데이터를 받아 0~100 F&G 대체 점수를 반환합니다."""
+) -> pd.DataFrame:
+    """가중치 적용 전, 5가지 지표 각각을 0~100으로 표준화한 값만 반환합니다.
+
+    이 함수는 compute_price_based_fg()와 fit_weights.py(가중치를 재현하는
+    회귀분석 스크립트)가 공유합니다 — 지표 계산 로직을 한 곳에서만 관리하기 위함.
+    """
     prices = pd.DataFrame({"qqq": qqq, "vix": vix, "ief": ief, "hyg": hyg, "lqd": lqd})
     prices = prices.ffill()
 
@@ -66,12 +70,33 @@ def compute_price_based_fg(
     junk_demand = prices["hyg"].pct_change(20) - prices["lqd"].pct_change(20)
     junk_demand_score = _rolling_zscore_to_0_100(junk_demand)
 
+    return pd.DataFrame(
+        {
+            "momentum": momentum_score,
+            "drawdown": drawdown_score,
+            "vix_level": vix_level_score,
+            "safe_haven": safe_haven_score,
+            "junk_demand": junk_demand_score,
+        }
+    )
+
+
+def compute_price_based_fg(
+    qqq: pd.Series,
+    vix: pd.Series,
+    ief: pd.Series,
+    hyg: pd.Series,
+    lqd: pd.Series,
+) -> pd.Series:
+    """5가지 시장 데이터를 받아 0~100 F&G 대체 점수를 반환합니다."""
+    components = compute_component_scores(qqq, vix, ief, hyg, lqd)
+
     fg_score = (
-        WEIGHTS["momentum"] * momentum_score
-        + WEIGHTS["drawdown"] * drawdown_score
-        + WEIGHTS["vix_level"] * vix_level_score
-        + WEIGHTS["safe_haven"] * safe_haven_score
-        + WEIGHTS["junk_demand"] * junk_demand_score
+        WEIGHTS["momentum"] * components["momentum"]
+        + WEIGHTS["drawdown"] * components["drawdown"]
+        + WEIGHTS["vix_level"] * components["vix_level"]
+        + WEIGHTS["safe_haven"] * components["safe_haven"]
+        + WEIGHTS["junk_demand"] * components["junk_demand"]
         + INTERCEPT
     )
     return fg_score.clip(0, 100).round(2)

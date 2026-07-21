@@ -746,27 +746,21 @@
     return PAD.top + (1 - v / 100) * plotH;
   }
 
-  function renderChart(data) {
-    const svg = document.getElementById("chart");
-    svg.innerHTML = "";
-    const n = data.length;
-    if (n === 0) return;
+  const SVG_NS = "http://www.w3.org/2000/svg";
 
-    const ns = "http://www.w3.org/2000/svg";
-    const baselineY = yScale(50);
-
-    // 그리드라인 (0/50/100)
+  // 0/50/100 그리드라인 + 눈금 라벨 (renderChart·renderCompareChart 공용)
+  function drawGridlines(svg, highlightBaseline) {
     [0, 50, 100].forEach((v) => {
-      const line = document.createElementNS(ns, "line");
+      const line = document.createElementNS(SVG_NS, "line");
       line.setAttribute("x1", PAD.left);
       line.setAttribute("x2", CHART_W - PAD.right);
       line.setAttribute("y1", yScale(v));
       line.setAttribute("y2", yScale(v));
-      line.setAttribute("stroke", v === 50 ? "var(--baseline)" : "var(--gridline)");
+      line.setAttribute("stroke", highlightBaseline && v === 50 ? "var(--baseline)" : "var(--gridline)");
       line.setAttribute("stroke-width", "1");
       svg.appendChild(line);
 
-      const label = document.createElementNS(ns, "text");
+      const label = document.createElementNS(SVG_NS, "text");
       label.setAttribute("x", PAD.left - 6);
       label.setAttribute("y", yScale(v) + 4);
       label.setAttribute("text-anchor", "end");
@@ -775,6 +769,42 @@
       label.textContent = v;
       svg.appendChild(label);
     });
+  }
+
+  // 세로 크로스헤어 선 (renderChart·renderCompareChart 공용)
+  function createCrosshair(svg) {
+    const crosshair = document.createElementNS(SVG_NS, "line");
+    crosshair.setAttribute("y1", PAD.top);
+    crosshair.setAttribute("y2", CHART_H - PAD.bottom);
+    crosshair.setAttribute("stroke", "var(--text-muted)");
+    crosshair.setAttribute("stroke-width", "1");
+    crosshair.setAttribute("visibility", "hidden");
+    svg.appendChild(crosshair);
+    return crosshair;
+  }
+
+  // hover 감지용 투명 영역 (renderChart·renderCompareChart 공용)
+  function createHitArea(svg) {
+    const hitArea = document.createElementNS(SVG_NS, "rect");
+    hitArea.setAttribute("x", PAD.left);
+    hitArea.setAttribute("y", PAD.top);
+    hitArea.setAttribute("width", plotW);
+    hitArea.setAttribute("height", plotH);
+    hitArea.setAttribute("fill", "transparent");
+    svg.appendChild(hitArea);
+    return hitArea;
+  }
+
+  function renderChart(data) {
+    const svg = document.getElementById("chart");
+    svg.innerHTML = "";
+    const n = data.length;
+    if (n === 0) return;
+
+    const ns = SVG_NS;
+    const baselineY = yScale(50);
+
+    drawGridlines(svg, true);
 
     // 위(탐욕)/아래(공포) 영역 채우기 — 50을 기준으로 클램프한 값으로 면적을 그리면
     // 자연스럽게 50 교차 지점에서 영역이 끊깁니다.
@@ -833,13 +863,7 @@
     svg.appendChild(endLabel);
 
     // ---- 크로스헤어 + 툴팁 (hover) ----
-    const crosshair = document.createElementNS(ns, "line");
-    crosshair.setAttribute("y1", PAD.top);
-    crosshair.setAttribute("y2", CHART_H - PAD.bottom);
-    crosshair.setAttribute("stroke", "var(--text-muted)");
-    crosshair.setAttribute("stroke-width", "1");
-    crosshair.setAttribute("visibility", "hidden");
-    svg.appendChild(crosshair);
+    const crosshair = createCrosshair(svg);
 
     const hoverDot = document.createElementNS(ns, "circle");
     hoverDot.setAttribute("r", "5");
@@ -848,13 +872,7 @@
     hoverDot.setAttribute("visibility", "hidden");
     svg.appendChild(hoverDot);
 
-    const hitArea = document.createElementNS(ns, "rect");
-    hitArea.setAttribute("x", PAD.left);
-    hitArea.setAttribute("y", PAD.top);
-    hitArea.setAttribute("width", plotW);
-    hitArea.setAttribute("height", plotH);
-    hitArea.setAttribute("fill", "transparent");
-    svg.appendChild(hitArea);
+    const hitArea = createHitArea(svg);
 
     const tooltip = document.getElementById("tooltip");
 
@@ -941,27 +959,9 @@
     const n = data.length;
     if (n === 0) return;
 
-    const ns = "http://www.w3.org/2000/svg";
+    const ns = SVG_NS;
 
-    [0, 50, 100].forEach((v) => {
-      const line = document.createElementNS(ns, "line");
-      line.setAttribute("x1", PAD.left);
-      line.setAttribute("x2", CHART_W - PAD.right);
-      line.setAttribute("y1", yScale(v));
-      line.setAttribute("y2", yScale(v));
-      line.setAttribute("stroke", "var(--gridline)");
-      line.setAttribute("stroke-width", "1");
-      svg.appendChild(line);
-
-      const label = document.createElementNS(ns, "text");
-      label.setAttribute("x", PAD.left - 6);
-      label.setAttribute("y", yScale(v) + 4);
-      label.setAttribute("text-anchor", "end");
-      label.setAttribute("font-size", "10");
-      label.setAttribute("fill", "var(--text-muted)");
-      label.textContent = v;
-      svg.appendChild(label);
-    });
+    drawGridlines(svg, false);
 
     function buildLine(key, color) {
       let d = "";
@@ -982,21 +982,8 @@
     buildLine("calculated", "var(--cat-2)");
 
     // 크로스헤어 + 툴팁
-    const crosshair = document.createElementNS(ns, "line");
-    crosshair.setAttribute("y1", PAD.top);
-    crosshair.setAttribute("y2", CHART_H - PAD.bottom);
-    crosshair.setAttribute("stroke", "var(--text-muted)");
-    crosshair.setAttribute("stroke-width", "1");
-    crosshair.setAttribute("visibility", "hidden");
-    svg.appendChild(crosshair);
-
-    const hitArea = document.createElementNS(ns, "rect");
-    hitArea.setAttribute("x", PAD.left);
-    hitArea.setAttribute("y", PAD.top);
-    hitArea.setAttribute("width", plotW);
-    hitArea.setAttribute("height", plotH);
-    hitArea.setAttribute("fill", "transparent");
-    svg.appendChild(hitArea);
+    const crosshair = createCrosshair(svg);
+    const hitArea = createHitArea(svg);
 
     const tooltip = document.getElementById("compare-tooltip");
 
