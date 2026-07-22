@@ -52,15 +52,19 @@ def fetch_live_quote(ticker: str) -> dict:
     response.raise_for_status()
     result = response.json()["chart"]["result"][0]
 
-    timestamps = result["timestamp"]
-    closes = result["indicators"]["quote"][0]["close"]
+    # 거래가 전혀 없었던 티커(예: 공휴일의 VIX)는 "timestamp" 키 자체가 없을 수 있음
+    meta = result.get("meta", {})
+    timestamps = result.get("timestamp") or []
+    quote = (result.get("indicators", {}).get("quote") or [{}])[0]
+    closes = quote.get("close") or []
 
     # None(거래 없는 분)을 걸러내고 가장 최근 값을 취함
     valid = [(t, c) for t, c in zip(timestamps, closes) if c is not None]
     if not valid:
-        meta = result["meta"]
-        as_of = pd.to_datetime(meta["regularMarketTime"], unit="s", utc=True)
-        return {"price": meta["regularMarketPrice"], "as_of": as_of}
+        if "regularMarketPrice" in meta and "regularMarketTime" in meta:
+            as_of = pd.to_datetime(meta["regularMarketTime"], unit="s", utc=True)
+            return {"price": meta["regularMarketPrice"], "as_of": as_of}
+        raise RuntimeError(f"{ticker}: Yahoo Finance 응답에 쓸 수 있는 가격이 없음 (분봉도 meta도 비어있음)")
 
     last_ts, last_price = valid[-1]
     return {"price": last_price, "as_of": pd.to_datetime(last_ts, unit="s", utc=True)}
