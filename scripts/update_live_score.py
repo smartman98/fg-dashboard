@@ -20,7 +20,13 @@ import requests
 from fetch_components import fetch_components
 from fetch_real_data import fetch_latest_score
 from kis_price_client import EXCHANGE_BY_TICKER, fetch_live_quote
-from price_proxy import compute_price_based_fg
+from price_proxy import (
+    INTERCEPT_8_VIXY,
+    INTERCEPT_VIXY,
+    WEIGHTS_8_VIXY,
+    WEIGHTS_VIXY,
+    compute_price_based_fg,
+)
 
 TICKERS = list(EXCHANGE_BY_TICKER)  # QQQ, VIXY, IEF, HYG, LQD
 CACHE_PATH = Path(__file__).resolve().parent / "price_cache.csv"
@@ -67,6 +73,10 @@ def compute_live_score() -> dict:
         put_call=put_call,
         strength=strength,
         breadth=breadth,
+        weights=WEIGHTS_VIXY,
+        intercept=INTERCEPT_VIXY,
+        weights_8=WEIGHTS_8_VIXY,
+        intercept_8=INTERCEPT_8_VIXY,
     )
 
     return {
