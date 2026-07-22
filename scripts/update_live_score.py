@@ -1,38 +1,50 @@
 """실시간 F&G 점수를 계산해서 Supabase의 live_scores 표에 저장합니다.
 
-GitHub Actions가 5분마다 이 스크립트를 실행합니다.
-SUPABASE_URL, SUPABASE_KEY는 환경변수(GitHub Actions Secrets)로 받습니다.
+GitHub Actions가 (이상적으로는) 5분마다 이 스크립트를 실행합니다.
+SUPABASE_URL, SUPABASE_KEY / KIS_PAPER_APP_KEY, KIS_PAPER_APP_SECRET은
+환경변수(GitHub Actions Secrets)로 받습니다.
+
+과거 시세는 Yahoo Finance 대신 KIS API를 쓰되(2026-07-22 교체), 매 실행마다 420일치를
+다시 받으면 KIS 호출 제한에 자주 걸리므로 price_cache.csv(fg-index/refresh_price_cache.py로
+하루 1번 갱신 후 커밋)를 읽고, "오늘" 값만 실시간으로 KIS에서 받아 덮어쓴다.
+
+VIX 현물지수는 KIS가 안 줘서 VIX 선물 ETF인 VIXY로 대체했다 (kis_price_client.py 참고).
 """
 
 import os
-from datetime import datetime, timedelta
+from pathlib import Path
 
 import pandas as pd
 import requests
 
 from fetch_components import fetch_components
 from fetch_real_data import fetch_latest_score
-from price_fetcher import fetch_live_quote, fetch_price_history
+from kis_price_client import EXCHANGE_BY_TICKER, fetch_live_quote
 from price_proxy import compute_price_based_fg
 
-TICKERS = ["QQQ", "^VIX", "IEF", "HYG", "LQD"]
-HISTORY_DAYS = 420
+TICKERS = list(EXCHANGE_BY_TICKER)  # QQQ, VIXY, IEF, HYG, LQD
+CACHE_PATH = Path(__file__).resolve().parent / "price_cache.csv"
+STALE_WARNING_DAYS = 3
+
+
+def _load_cached_history() -> pd.DataFrame:
+    df = pd.read_csv(CACHE_PATH, index_col="date", parse_dates=True)
+    age_days = (pd.Timestamp.now().normalize() - df.index.max()).days
+    if age_days > STALE_WARNING_DAYS:
+        print(f"경고: price_cache.csv가 {age_days}일 전 데이터임. refresh_price_cache.py 재실행 필요.")
+    return df
 
 
 def compute_live_score() -> dict:
-    start = datetime.now() - timedelta(days=HISTORY_DAYS)
+    history = _load_cached_history()
 
-    histories = {}
-    live_quotes = {}
-    for ticker in TICKERS:
-        histories[ticker] = fetch_price_history(ticker, start)
-        live_quotes[ticker] = fetch_live_quote(ticker)
+    live_quotes = {ticker: fetch_live_quote(ticker) for ticker in TICKERS}
 
     today = pd.Timestamp.now().normalize()
 
     series_map = {}
     for ticker in TICKERS:
-        series = histories[ticker].copy()
+        series = history[ticker].copy()
         series.loc[today] = live_quotes[ticker]["price"]
         series_map[ticker] = series.sort_index()
 
@@ -48,7 +60,7 @@ def compute_live_score() -> dict:
 
     fg_series = compute_price_based_fg(
         qqq=series_map["QQQ"],
-        vix=series_map["^VIX"],
+        vix=series_map["VIXY"],
         ief=series_map["IEF"],
         hyg=series_map["HYG"],
         lqd=series_map["LQD"],
