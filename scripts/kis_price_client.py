@@ -49,6 +49,17 @@ def _throttle() -> None:
     _last_call_at = time.monotonic()
 
 
+def _get_with_retry(url: str, headers: dict, params: dict, retries: int = 2) -> requests.Response:
+    """KIS가 가끔 500(서버 오류)/일시적 rate limit을 던지는 걸 대비해 한두 번 재시도한다."""
+    for attempt in range(retries + 1):
+        response = requests.get(url, headers=headers, params=params, timeout=20)
+        if response.status_code < 500 and "초당 거래건수" not in response.text:
+            return response
+        if attempt < retries:
+            time.sleep(2 * (attempt + 1))
+    return response
+
+
 def _app_key() -> str:
     return os.environ["KIS_PAPER_APP_KEY"]
 
@@ -111,7 +122,7 @@ def fetch_live_quote(ticker: str) -> dict:
     excd = EXCHANGE_BY_TICKER[ticker]
     url = f"{BASE_URL}/uapi/overseas-price/v1/quotations/price"
     params = {"AUTH": "", "EXCD": excd, "SYMB": ticker}
-    response = requests.get(url, headers=_headers("HHDFS00000300"), params=params, timeout=20)
+    response = _get_with_retry(url, _headers("HHDFS00000300"), params)
     response.raise_for_status()
     data = response.json()
     if data.get("rt_cd") != "0":
@@ -135,7 +146,7 @@ def fetch_price_history(ticker: str, start: datetime, end: datetime | None = Non
         _throttle()
         url = f"{BASE_URL}/uapi/overseas-price/v1/quotations/dailyprice"
         params = {"AUTH": "", "EXCD": excd, "SYMB": ticker, "GUBN": "0", "BYMD": bymd, "MODP": "1"}
-        response = requests.get(url, headers=_headers("HHDFS76240000"), params=params, timeout=20)
+        response = _get_with_retry(url, _headers("HHDFS76240000"), params)
         response.raise_for_status()
         data = response.json()
         if data.get("rt_cd") != "0":

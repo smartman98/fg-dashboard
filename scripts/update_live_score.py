@@ -103,8 +103,15 @@ def save_to_supabase(rows: list[dict]) -> None:
 
 
 if __name__ == "__main__":
-    price_based = compute_live_score()
-    print(f"가격 기반 계산: {price_based}")
+    rows = []
+
+    # KIS가 가끔 500/rate-limit을 던지는데, 그것 때문에 CNN 실제값까지 못 남기면 안 된다.
+    try:
+        price_based = compute_live_score()
+        print(f"가격 기반 계산: {price_based}")
+        rows.append({**price_based, "source": "price_based"})
+    except Exception as exc:  # noqa: BLE001
+        print(f"가격 기반 계산 실패(KIS 오류 등), 이번 실행은 CNN 실제값만 저장합니다: {exc}")
 
     cnn_real = fetch_latest_score()
     cnn_row = {
@@ -113,9 +120,7 @@ if __name__ == "__main__":
         "source": "cnn_real",
     }
     print(f"CNN 실제값: {cnn_row}")
+    rows.append(cnn_row)
 
-    save_to_supabase([
-        {**price_based, "source": "price_based"},
-        cnn_row,
-    ])
-    print("Supabase 저장 완료 (둘 다)")
+    save_to_supabase(rows)
+    print(f"Supabase 저장 완료 ({len(rows)}개)")
