@@ -15,13 +15,19 @@
 
 ★ 5개 지표를 합치는 가중치는, 2011~2026년 실제 CNN 데이터에 회귀분석(OLS)으로
    맞춘 값입니다. 이 구간에서 실제값과의 상관계수 0.77 수준을 확인했습니다.
+
+★★ 2020-09-18 이후는 CNN이 공개하는 나머지 3개 실제 지표(풋/콜 비율, 주가 강도,
+   주가 폭)를 fetch_components.py로 직접 받아와 8개 지표 모델을 쓸 수 있습니다.
+   같은 기간 기준으로 비교하면 상관계수가 0.735 → 0.840으로 오릅니다
+   (compare_models.py 참고). 2020-09-18 이전 구간은 CNN도 이 3개 지표를
+   과거분으로 안 주기 때문에 5개 지표 모델만 계산 가능합니다.
 """
 
 import pandas as pd
 
 ROLLING_WINDOW = 252  # 표준화 기준 기간 (거래일 기준 약 1년)
 
-# 2011~2026 실제 CNN 데이터에 회귀분석으로 맞춘 가중치
+# 2011~2026 실제 CNN 데이터에 회귀분석으로 맞춘 가중치 (5개 지표, 전체 기간 계산 가능)
 WEIGHTS = {
     "momentum": 0.3207,
     "drawdown": -0.1571,
@@ -30,6 +36,19 @@ WEIGHTS = {
     "junk_demand": 0.1863,
 }
 INTERCEPT = -14.5007
+
+# 2020-09-18~2026 실제 CNN 데이터에 회귀분석으로 맞춘 가중치 (8개 지표, 2020-09-18 이후만 계산 가능)
+WEIGHTS_8 = {
+    "momentum": 0.2991,
+    "drawdown": -0.0545,
+    "vix_level": 0.2641,
+    "safe_haven": 0.2858,
+    "junk_demand": 0.0788,
+    "put_call": 5.3616,
+    "strength": -1.1309,
+    "breadth": 0.0273,
+}
+INTERCEPT_8 = -28.1170
 
 
 def _rolling_zscore_to_0_100(series: pd.Series, invert: bool = False) -> pd.Series:
@@ -87,9 +106,31 @@ def compute_price_based_fg(
     ief: pd.Series,
     hyg: pd.Series,
     lqd: pd.Series,
+    put_call: pd.Series = None,
+    strength: pd.Series = None,
+    breadth: pd.Series = None,
 ) -> pd.Series:
-    """5가지 시장 데이터를 받아 0~100 F&G 대체 점수를 반환합니다."""
+    """시장 데이터를 받아 0~100 F&G 대체 점수를 반환합니다.
+
+    put_call/strength/breadth를 모두 넘기면(2020-09-18 이후만 가능) 8개 지표
+    모델을 쓰고, 하나라도 없으면(과거 백테스트 등) 5개 지표 모델로 계산합니다.
+    """
     components = compute_component_scores(qqq, vix, ief, hyg, lqd)
+
+    if put_call is not None and strength is not None and breadth is not None:
+        components = components.assign(put_call=put_call, strength=strength, breadth=breadth)
+        fg_score = (
+            WEIGHTS_8["momentum"] * components["momentum"]
+            + WEIGHTS_8["drawdown"] * components["drawdown"]
+            + WEIGHTS_8["vix_level"] * components["vix_level"]
+            + WEIGHTS_8["safe_haven"] * components["safe_haven"]
+            + WEIGHTS_8["junk_demand"] * components["junk_demand"]
+            + WEIGHTS_8["put_call"] * components["put_call"]
+            + WEIGHTS_8["strength"] * components["strength"]
+            + WEIGHTS_8["breadth"] * components["breadth"]
+            + INTERCEPT_8
+        )
+        return fg_score.clip(0, 100).round(2)
 
     fg_score = (
         WEIGHTS["momentum"] * components["momentum"]

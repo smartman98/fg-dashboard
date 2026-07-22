@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 import requests
 
+from fetch_components import fetch_components
 from fetch_real_data import fetch_latest_score
 from price_fetcher import fetch_live_quote, fetch_price_history
 from price_proxy import compute_price_based_fg
@@ -35,12 +36,25 @@ def compute_live_score() -> dict:
         series.loc[today] = live_quotes[ticker]["price"]
         series_map[ticker] = series.sort_index()
 
+    # 2020-09-18 이후는 CNN이 공개하는 나머지 3개 지표(풋/콜·강도·폭)를 받아서
+    # 8개 지표 모델을 쓴다. 실패하면(네트워크 문제 등) 5개 지표 모델로 자동 대체.
+    try:
+        extra = fetch_components().set_index("date").sort_index()
+        extra = extra.reindex(series_map["QQQ"].index).ffill()
+        put_call, strength, breadth = extra["put_call"], extra["strength"], extra["breadth"]
+    except Exception as exc:  # noqa: BLE001
+        print(f"3개 추가 지표 조회 실패, 5개 지표 모델로 대체합니다: {exc}")
+        put_call = strength = breadth = None
+
     fg_series = compute_price_based_fg(
         qqq=series_map["QQQ"],
         vix=series_map["^VIX"],
         ief=series_map["IEF"],
         hyg=series_map["HYG"],
         lqd=series_map["LQD"],
+        put_call=put_call,
+        strength=strength,
+        breadth=breadth,
     )
 
     return {
