@@ -530,6 +530,15 @@
   const today = FG_DATA.today;
   const comparison = FG_DATA.comparison; // [{date, real, calculated}], 2011~오늘
 
+  // 데이터가 거래일 기준(주말·공휴일 제외)이라, "최근 N일" 필터를 마지막 N개 행으로 자르면
+  // 실제로는 N 캘린더일보다 훨씬 더 과거까지 거슬러 올라가게 된다(예: 90거래일 ≈ 133캘린더일).
+  // 그래서 행 개수가 아니라 실제 달력 날짜로 잘라야 한다.
+  function daysAgo(dateStr, days) {
+    const d = new Date(dateStr + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() - days);
+    return d.toISOString().slice(0, 10);
+  }
+
   // publishable key는 브라우저에 공개돼도 되는 키입니다 (RLS로 보호됨).
   const SUPABASE_URL = "https://wckohdcjpjlzeaiehmzs.supabase.co";
   const SUPABASE_KEY = "sb_publishable_4fPOT_f1VwEvH4gEXumgjg_JH-7X_mY";
@@ -713,8 +722,10 @@
 
   function filterRange(rangeKey) {
     if (rangeKey === "all") return history;
+    if (history.length === 0) return history;
     const days = Number(rangeKey);
-    return history.slice(-days);
+    const cutoff = daysAgo(history[history.length - 1].date, days);
+    return history.filter((row) => row.date >= cutoff);
   }
 
   function renderTable(data) {
@@ -928,8 +939,10 @@
 
   function filterCompareRange(rangeKey) {
     if (rangeKey === "all") return comparison;
+    if (comparison.length === 0) return comparison;
     const days = Number(rangeKey);
-    return comparison.slice(-days);
+    const cutoff = daysAgo(comparison[comparison.length - 1].date, days);
+    return comparison.filter((row) => row.date >= cutoff);
   }
 
   function renderDiffStat(data) {
