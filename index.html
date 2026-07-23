@@ -455,14 +455,6 @@
     <p class="signal-line" hidden>판정 신호: <strong id="signal-text">–</strong></p>
   </section>
 
-  <section class="live-card">
-    <div class="live-header">
-      <p class="live-label">실시간 계산 (5분마다 자동 갱신)</p>
-      <span class="live-pulse"><span class="live-dot"></span><span id="live-updated">불러오는 중...</span></span>
-    </div>
-    <p class="live-figure" id="live-score">–</p>
-  </section>
-
   <div class="filter-row" id="filter-row">
     <button class="filter-btn" data-range="30">최근 30일</button>
     <button class="filter-btn active" data-range="90">최근 90일</button>
@@ -486,6 +478,22 @@
         <thead><tr><th>날짜</th><th>F&G 점수</th></tr></thead>
         <tbody id="table-body"></tbody>
       </table>
+    </div>
+  </section>
+
+  <section class="live-card">
+    <div class="live-header">
+      <p class="live-label">실시간 계산 (5분마다 자동 갱신)</p>
+      <span class="live-pulse"><span class="live-dot"></span><span id="live-updated">불러오는 중...</span></span>
+    </div>
+    <p class="live-figure" id="live-score">–</p>
+  </section>
+
+  <section class="chart-card">
+    <p class="chart-title">실시간 계산값 추이</p>
+    <div style="position:relative;">
+      <svg class="fg-chart" id="live-history-chart" viewBox="0 0 640 260" role="img" aria-label="실시간 계산값 추이 차트"></svg>
+      <div class="tooltip" id="live-history-tooltip"></div>
     </div>
   </section>
 
@@ -566,6 +574,123 @@
     } catch (err) {
       scoreEl.textContent = "불러오기 실패";
       updatedEl.textContent = "";
+    }
+  }
+
+  // ---------- 실시간 계산값 추이 차트 (Supabase live_scores 히스토리) ----------
+
+  function renderLiveHistoryChart(data) {
+    const svg = document.getElementById("live-history-chart");
+    svg.innerHTML = "";
+    const n = data.length;
+    if (n === 0) return;
+    const ns = SVG_NS;
+
+    drawGridlines(svg, false);
+
+    let lineD = "";
+    data.forEach((d, i) => {
+      lineD += (i === 0 ? "M " : "L ") + xScale(i, n) + " " + yScale(d.score) + " ";
+    });
+    const linePath = document.createElementNS(ns, "path");
+    linePath.setAttribute("d", lineD);
+    linePath.setAttribute("fill", "none");
+    linePath.setAttribute("stroke", "var(--cat-2)");
+    linePath.setAttribute("stroke-width", "2");
+    linePath.setAttribute("stroke-linejoin", "round");
+    linePath.setAttribute("stroke-linecap", "round");
+    svg.appendChild(linePath);
+
+    const lastX = xScale(n - 1, n), lastY = yScale(data[n - 1].score);
+    const endDot = document.createElementNS(ns, "circle");
+    endDot.setAttribute("cx", lastX);
+    endDot.setAttribute("cy", lastY);
+    endDot.setAttribute("r", "4");
+    endDot.setAttribute("fill", "var(--cat-2)");
+    endDot.setAttribute("stroke", "var(--surface-1)");
+    endDot.setAttribute("stroke-width", "2");
+    svg.appendChild(endDot);
+
+    const endLabel = document.createElementNS(ns, "text");
+    endLabel.setAttribute("x", lastX - 6);
+    endLabel.setAttribute("y", lastY - 10);
+    endLabel.setAttribute("text-anchor", "end");
+    endLabel.setAttribute("font-size", "12");
+    endLabel.setAttribute("font-weight", "700");
+    endLabel.setAttribute("fill", "var(--text-primary)");
+    endLabel.textContent = data[n - 1].score.toFixed(1);
+    svg.appendChild(endLabel);
+
+    const crosshair = createCrosshair(svg);
+    const hoverDot = document.createElementNS(ns, "circle");
+    hoverDot.setAttribute("r", "5");
+    hoverDot.setAttribute("fill", "var(--cat-2)");
+    hoverDot.setAttribute("stroke", "var(--surface-1)");
+    hoverDot.setAttribute("stroke-width", "2");
+    hoverDot.setAttribute("visibility", "hidden");
+    svg.appendChild(hoverDot);
+
+    const hitArea = createHitArea(svg);
+    const tooltip = document.getElementById("live-history-tooltip");
+
+    function showTooltipAt(clientEvtX) {
+      const rect = svg.getBoundingClientRect();
+      const relX = ((clientEvtX - rect.left) / rect.width) * CHART_W;
+      let idx = Math.round(((relX - PAD.left) / plotW) * (n - 1));
+      idx = Math.max(0, Math.min(n - 1, idx));
+
+      const px = xScale(idx, n), py = yScale(data[idx].score);
+      crosshair.setAttribute("x1", px);
+      crosshair.setAttribute("x2", px);
+      crosshair.setAttribute("visibility", "visible");
+      hoverDot.setAttribute("cx", px);
+      hoverDot.setAttribute("cy", py);
+      hoverDot.setAttribute("visibility", "visible");
+
+      tooltip.style.opacity = "1";
+      tooltip.innerHTML = "";
+      const timeLine = document.createElement("div");
+      timeLine.textContent = data[idx].time.toLocaleString("ko-KR", {
+        month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit",
+      });
+      const valueLine = document.createElement("div");
+      valueLine.className = "tt-value";
+      valueLine.textContent = data[idx].score.toFixed(1) + "점";
+      tooltip.appendChild(timeLine);
+      tooltip.appendChild(valueLine);
+
+      const svgPixelRect = svg.getBoundingClientRect();
+      const scaleX = svgPixelRect.width / CHART_W;
+      const tooltipX = px * scaleX;
+      tooltip.style.left = Math.min(tooltipX + 10, svgPixelRect.width - 110) + "px";
+      tooltip.style.top = (py * (svgPixelRect.height / CHART_H) - 40) + "px";
+    }
+
+    function hideTooltip() {
+      crosshair.setAttribute("visibility", "hidden");
+      hoverDot.setAttribute("visibility", "hidden");
+      tooltip.style.opacity = "0";
+    }
+
+    hitArea.addEventListener("pointermove", (e) => showTooltipAt(e.clientX));
+    hitArea.addEventListener("pointerleave", hideTooltip);
+  }
+
+  async function fetchLiveHistory() {
+    try {
+      const res = await fetch(
+        `${SUPABASE_URL}/rest/v1/live_scores?source=eq.price_based&order=computed_at.desc&limit=200`,
+        { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+      );
+      if (!res.ok) throw new Error("서버 응답 오류 (" + res.status + ")");
+      const rows = await res.json();
+      const data = rows
+        .slice()
+        .reverse()
+        .map((r) => ({ time: new Date(r.computed_at), score: Number(r.score) }));
+      renderLiveHistoryChart(data);
+    } catch (err) {
+      document.getElementById("live-history-chart").innerHTML = "";
     }
   }
 
@@ -1087,8 +1212,10 @@
   renderCompareAll("90");
   fetchNotes();
   fetchLiveScore();
+  fetchLiveHistory();
   fetchCnnRealScore();
   setInterval(fetchLiveScore, 60000); // 화면을 열어둔 동안 1분마다 최신값 재조회
+  setInterval(fetchLiveHistory, 60000);
   setInterval(fetchCnnRealScore, 60000);
 })();
 </script>
