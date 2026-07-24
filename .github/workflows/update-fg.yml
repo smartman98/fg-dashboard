@@ -20,6 +20,22 @@ jobs:
       - name: Install dependencies
         run: pip install -r scripts/requirements.txt
 
+      # 키움 접근토큰을 매 실행(1분 간격)마다 새로 발급받으면, 로컬 개발용으로 같은
+      # 앱키를 쓰는 kiwoom_client.py의 캐시 토큰이 곧바로 무효화된다(2026-07-24 확인:
+      # "Token이 유효하지 않습니다" 에러). GitHub Actions는 매 실행이 깨끗한 체크아웃이라
+      # 캐시 파일이 없어서 매번 재발급하던 게 원인 — actions/cache로 토큰 캐시 파일을
+      # 실행 간에 이어받아서, 유효기간 안에는 재발급 없이 재사용하도록 한다.
+      # (git에 직접 커밋하지 않는 이유: 이 저장소는 public이라 커밋 이력에 실제
+      # 토큰 값이 남는 걸 피하기 위함 — actions/cache는 저장소 콘텐츠가 아니라
+      # 같은 저장소의 워크플로만 접근 가능한 별도 캐시 스토리지라 더 안전하다.)
+      - name: Restore Kiwoom token cache
+        uses: actions/cache/restore@v4
+        with:
+          path: scripts/.kiwoom_token_cache_demo_overseas.json
+          key: kiwoom-token-${{ github.run_id }}
+          restore-keys: |
+            kiwoom-token-
+
       - name: Compute and save live F&G score
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -27,3 +43,10 @@ jobs:
           KIWOOM_PAPER_OVERSEAS_APP_KEY: ${{ secrets.KIWOOM_PAPER_OVERSEAS_APP_KEY }}
           KIWOOM_PAPER_OVERSEAS_APP_SECRET: ${{ secrets.KIWOOM_PAPER_OVERSEAS_APP_SECRET }}
         run: python scripts/update_live_score.py
+
+      - name: Save Kiwoom token cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: scripts/.kiwoom_token_cache_demo_overseas.json
+          key: kiwoom-token-${{ github.run_id }}
