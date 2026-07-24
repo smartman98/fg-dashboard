@@ -591,8 +591,29 @@
     const n = data.length;
     if (n === 0) return;
     const ns = SVG_NS;
+    const baselineY = yScale(50);
 
-    drawGridlines(svg, false);
+    drawGridlines(svg, true);
+
+    // F&G 지수 추이 차트와 동일한 스타일: 50 기준 위(탐욕)/아래(공포) 영역 채우기.
+    function buildAreaPath(clampFn) {
+      let d = `M ${xScale(0, n)} ${baselineY} `;
+      for (let i = 0; i < n; i++) {
+        d += `L ${xScale(i, n)} ${yScale(clampFn(data[i].score))} `;
+      }
+      d += `L ${xScale(n - 1, n)} ${baselineY} Z`;
+      return d;
+    }
+
+    const abovePath = document.createElementNS(ns, "path");
+    abovePath.setAttribute("d", buildAreaPath((v) => Math.max(v, 50)));
+    abovePath.setAttribute("fill", "var(--diverge-blue-wash)");
+    svg.appendChild(abovePath);
+
+    const belowPath = document.createElementNS(ns, "path");
+    belowPath.setAttribute("d", buildAreaPath((v) => Math.min(v, 50)));
+    belowPath.setAttribute("fill", "var(--diverge-red-wash)");
+    svg.appendChild(belowPath);
 
     let lineD = "";
     data.forEach((d, i) => {
@@ -601,7 +622,7 @@
     const linePath = document.createElementNS(ns, "path");
     linePath.setAttribute("d", lineD);
     linePath.setAttribute("fill", "none");
-    linePath.setAttribute("stroke", "var(--cat-2)");
+    linePath.setAttribute("stroke", "var(--text-secondary)");
     linePath.setAttribute("stroke-width", "2");
     linePath.setAttribute("stroke-linejoin", "round");
     linePath.setAttribute("stroke-linecap", "round");
@@ -612,7 +633,7 @@
     endDot.setAttribute("cx", lastX);
     endDot.setAttribute("cy", lastY);
     endDot.setAttribute("r", "4");
-    endDot.setAttribute("fill", "var(--cat-2)");
+    endDot.setAttribute("fill", data[n - 1].score >= 50 ? "var(--diverge-blue)" : "var(--diverge-red)");
     endDot.setAttribute("stroke", "var(--surface-1)");
     endDot.setAttribute("stroke-width", "2");
     svg.appendChild(endDot);
@@ -630,7 +651,7 @@
     const crosshair = createCrosshair(svg);
     const hoverDot = document.createElementNS(ns, "circle");
     hoverDot.setAttribute("r", "5");
-    hoverDot.setAttribute("fill", "var(--cat-2)");
+    hoverDot.setAttribute("fill", data[n - 1].score >= 50 ? "var(--diverge-blue)" : "var(--diverge-red)");
     hoverDot.setAttribute("stroke", "var(--surface-1)");
     hoverDot.setAttribute("stroke-width", "2");
     hoverDot.setAttribute("visibility", "hidden");
@@ -651,6 +672,7 @@
       crosshair.setAttribute("visibility", "visible");
       hoverDot.setAttribute("cx", px);
       hoverDot.setAttribute("cy", py);
+      hoverDot.setAttribute("fill", data[idx].score >= 50 ? "var(--diverge-blue)" : "var(--diverge-red)");
       hoverDot.setAttribute("visibility", "visible");
 
       tooltip.style.opacity = "1";
