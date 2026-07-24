@@ -488,6 +488,13 @@
     <p class="live-figure" id="live-score">–</p>
   </section>
 
+  <div class="filter-row" id="live-history-filter-row">
+    <button class="filter-btn" data-hours="1">1시간</button>
+    <button class="filter-btn" data-hours="6">6시간</button>
+    <button class="filter-btn active" data-hours="24">24시간</button>
+    <button class="filter-btn" data-hours="168">7일</button>
+  </div>
+
   <section class="chart-card">
     <p class="chart-title">실시간 계산값 추이</p>
     <div style="position:relative;">
@@ -675,18 +682,19 @@
     hitArea.addEventListener("pointerleave", hideTooltip);
   }
 
-  async function fetchLiveHistory() {
+  let liveHistoryRangeHours = 24; // 필터 버튼으로 바뀌는 현재 선택 구간, 60초 자동갱신도 이 값을 씀
+
+  async function fetchLiveHistory(hours = liveHistoryRangeHours) {
+    liveHistoryRangeHours = hours;
     try {
+      const sinceIso = new Date(Date.now() - hours * 3600 * 1000).toISOString();
       const res = await fetch(
-        `${SUPABASE_URL}/rest/v1/live_scores?source=eq.price_based&order=computed_at.desc&limit=200`,
+        `${SUPABASE_URL}/rest/v1/live_scores?source=eq.price_based&computed_at=gte.${sinceIso}&order=computed_at.asc&limit=5000`,
         { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
       );
       if (!res.ok) throw new Error("서버 응답 오류 (" + res.status + ")");
       const rows = await res.json();
-      const data = rows
-        .slice()
-        .reverse()
-        .map((r) => ({ time: new Date(r.computed_at), score: Number(r.score) }));
+      const data = rows.map((r) => ({ time: new Date(r.computed_at), score: Number(r.score) }));
       renderLiveHistoryChart(data);
     } catch (err) {
       document.getElementById("live-history-chart").innerHTML = "";
@@ -1196,6 +1204,14 @@
     document.querySelectorAll("#compare-filter-row .filter-btn").forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
     renderCompareAll(btn.dataset.range);
+  });
+
+  document.getElementById("live-history-filter-row").addEventListener("click", (e) => {
+    const btn = e.target.closest(".filter-btn");
+    if (!btn) return;
+    document.querySelectorAll("#live-history-filter-row .filter-btn").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    fetchLiveHistory(Number(btn.dataset.hours));
   });
 
   document.getElementById("table-toggle").addEventListener("click", () => {
