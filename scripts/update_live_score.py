@@ -1,14 +1,22 @@
 """실시간 F&G 점수를 계산해서 Supabase의 live_scores 표에 저장합니다.
 
 GitHub Actions가 (이상적으로는) 5분마다 이 스크립트를 실행합니다.
-SUPABASE_URL, SUPABASE_KEY / KIS_PAPER_APP_KEY, KIS_PAPER_APP_SECRET은
+SUPABASE_URL, SUPABASE_KEY / KIWOOM_PAPER_OVERSEAS_APP_KEY, KIWOOM_PAPER_OVERSEAS_APP_SECRET은
 환경변수(GitHub Actions Secrets)로 받습니다.
 
-과거 시세는 Yahoo Finance 대신 KIS API를 쓰되(2026-07-22 교체), 매 실행마다 420일치를
-다시 받으면 KIS 호출 제한에 자주 걸리므로 price_cache.csv(fg-index/refresh_price_cache.py로
-하루 1번 갱신 후 커밋)를 읽고, "오늘" 값만 실시간으로 KIS에서 받아 덮어쓴다.
+과거 시세는 Yahoo Finance 대신 증권사 API를 쓰되(2026-07-22 KIS로 교체 후, 2026-07-24
+키움으로 재교체), 매 실행마다 420일치를 다시 받으면 호출 제한에 자주 걸리므로
+price_cache.csv(fg-index/refresh_price_cache.py로 하루 1번 갱신 후 커밋)를 읽고,
+"오늘" 값만 실시간으로 받아 덮어쓴다.
 
-VIX 현물지수는 KIS가 안 줘서 VIX 선물 ETF인 VIXY로 대체했다 (kis_price_client.py 참고).
+**2026-07-24 KIS→키움 전환 이유**: 같은 시각(장중 휴장으로 알려진 09:00~17:00 KST 구간
+포함)에 두 증권사 시세를 나란히 비교해보니, KIS는 정규장 마감가에서 완전히 멈춰있는 반면
+키움은 "나이트데스크"(오버나이트 ATS)를 통해 실제로 계속 움직이는 실시간 가격을 준다 —
+실측 확인(compare_price_sources.py): KIS QQQ는 세 번 조회 내내 691.9600으로 고정, 키움
+QQQ는 690.89→690.72→689.54로 실제 변동. 그래서 F&G 실시간 계산은 키움 쪽이 하루 종일
+갱신되고, KIS는 정규장 시간에만 의미 있는 값을 준다.
+
+VIX 현물지수는 증권사 API가 안 줘서 VIX 선물 ETF인 VIXY로 대체했다 (kiwoom_client.py 참고).
 """
 
 import os
@@ -19,7 +27,7 @@ import requests
 
 from fetch_components import fetch_components
 from fetch_real_data import fetch_latest_score
-from kis_price_client import EXCHANGE_BY_TICKER, fetch_live_quote
+from kiwoom_client import fetch_live_quote
 from price_proxy import (
     INTERCEPT_8_VIXY,
     INTERCEPT_VIXY,
@@ -28,7 +36,7 @@ from price_proxy import (
     compute_price_based_fg,
 )
 
-TICKERS = list(EXCHANGE_BY_TICKER)  # QQQ, VIXY, IEF, HYG, LQD
+TICKERS = ["QQQ", "VIXY", "IEF", "HYG", "LQD"]
 CACHE_PATH = Path(__file__).resolve().parent / "price_cache.csv"
 STALE_WARNING_DAYS = 3
 
