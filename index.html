@@ -743,14 +743,21 @@
   async function fetchLiveHistory(hours = liveHistoryRangeHours) {
     liveHistoryRangeHours = hours;
     try {
+      // PostgREST(Supabase)는 요청한 limit(5000)과 무관하게 서버 기본 max-rows(1000)로
+      // 응답을 자른다(2026-07-26 실측: 7일치 3224건 중 0-999만 반환됨). 예전처럼
+      // order=asc로 앞에서부터 1000개를 받으면 정작 "지금"에 가까운 데이터는 통째로
+      // 빠지고, xScale이 인덱스 기준이라 잘린 오래된 데이터가 그래프 오른쪽 끝(=지금
+      // 자리)에 그려져서 "실시간 계산"(진짜 최신값)과 다른 숫자가 나왔었다. desc로
+      // 최신 1000개를 받은 뒤 화면 표시용으로만 시간순으로 뒤집는다 — 잘리더라도
+      // 옛날 데이터가 잘리는 게 맞다.
       const sinceIso = new Date(Date.now() - hours * 3600 * 1000).toISOString();
       const res = await fetch(
-        `${SUPABASE_URL}/rest/v1/live_scores?source=eq.price_based&computed_at=gte.${sinceIso}&order=computed_at.asc&limit=5000`,
+        `${SUPABASE_URL}/rest/v1/live_scores?source=eq.price_based&computed_at=gte.${sinceIso}&order=computed_at.desc&limit=5000`,
         { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
       );
       if (!res.ok) throw new Error("서버 응답 오류 (" + res.status + ")");
       const rows = await res.json();
-      const data = rows.map((r) => ({ time: new Date(r.computed_at), score: Number(r.score) }));
+      const data = rows.reverse().map((r) => ({ time: new Date(r.computed_at), score: Number(r.score) }));
       renderLiveHistoryChart(data);
     } catch (err) {
       document.getElementById("live-history-chart").innerHTML = "";
