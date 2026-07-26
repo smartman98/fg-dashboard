@@ -81,6 +81,15 @@ def _is_still_valid(cached: dict) -> bool:
     return expires_at - datetime.now() > timedelta(minutes=5)
 
 
+def _invalidate_token(mode: str, market: str) -> None:
+    """캐시된 토큰이 만료시각(expires_dt)과 무관하게 서버에서 거부되는 경우가 실측으로
+    확인됨(2026-07-25/26, "인증에 실패했습니다[8005:Token이 유효하지 않습니다]") — 원인은
+    아직 불명확하지만, 이 에러를 만나면 캐시를 지우고 새 토큰을 발급받도록 한다."""
+    cache_key = f"{mode}:{market}"
+    _token_cache.pop(cache_key, None)
+    _token_cache_path(mode, market).unlink(missing_ok=True)
+
+
 def _issue_token(mode: str, market: str) -> str:
     cache_key = f"{mode}:{market}"
     if cache_key in _token_cache:
@@ -127,29 +136,43 @@ def _headers(mode: str, market: str, api_id: str) -> dict:
     }
 
 
+def _is_invalid_token_error(data: dict) -> bool:
+    msg = str(data.get("return_msg", ""))
+    return "Token" in msg and ("유효하지" in msg or "인증에 실패" in msg)
+
+
 def _post(mode: str, market: str, api_id: str, path: str, body: dict, retries: int = 2) -> dict:
     """모든 키움 API가 조회든 주문이든 POST + JSON body라는 게 KIS와의 가장 큰 차이.
 
     429(rate limit)는 실측으로 초당 1회 스로틀로도 연속 호출 시 발생함 — KIS처럼 짧게
-    재시도한다(kis_price_client._get_with_retry와 동일한 완화책)."""
-    response = None
-    for attempt in range(retries + 1):
-        _throttle()
-        response = requests.post(
-            f"{_base_url(mode)}{path}",
-            headers=_headers(mode, market, api_id),
-            data=json.dumps(body),
-            timeout=20,
-        )
-        if response.status_code != 429:
-            break
-        if attempt < retries:
-            time.sleep(2 * (attempt + 1))
-    response.raise_for_status()
-    data = response.json()
-    if data.get("return_code") not in (0, "0", None):
+    재시도한다(kis_price_client._get_with_retry와 동일한 완화책).
+
+    토큰이 만료시각과 무관하게 서버에서 거부되는 경우가 있어서(2026-07-25/26 실측,
+    "Token이 유효하지 않습니다"), 이 에러를 받으면 캐시를 지우고 새 토큰으로 한 번 더
+    시도한다 — 안 그러면 GitHub Actions 자동화가 이 에러를 만난 이후로 계속 조용히
+    실패만 반복하게 된다(캐시가 다음 실행에도 그대로 남아있어서)."""
+    for token_attempt in range(2):
+        response = None
+        for attempt in range(retries + 1):
+            _throttle()
+            response = requests.post(
+                f"{_base_url(mode)}{path}",
+                headers=_headers(mode, market, api_id),
+                data=json.dumps(body),
+                timeout=20,
+            )
+            if response.status_code != 429:
+                break
+            if attempt < retries:
+                time.sleep(2 * (attempt + 1))
+        response.raise_for_status()
+        data = response.json()
+        if data.get("return_code") in (0, "0", None):
+            return data
+        if token_attempt == 0 and _is_invalid_token_error(data):
+            _invalidate_token(mode, market)
+            continue
         raise RuntimeError(f"Kiwoom API 실패 {api_id} ({mode}/{market}): {data}")
-    return data
 
 
 def abs_price(signed_value) -> float:
@@ -264,6 +287,8 @@ EXCHANGE_BY_TICKER = {
     "IEF": "ND",
     "HYG": "NY",  # 실측(2026-07-24): NA(AMEX)로는 "종목 정보가 없습니다" 실패, NY(NYSE Arca 취급)라야 됨
     "LQD": "NY",  # 위와 동일한 이유
+    "GPIQ": "ND",  # 실계좌 실보유 종목(2026-07-25 확인)
+    "IREN": "ND",  # 실계좌 실보유 종목(2026-07-25 확인)
 }
 
 
@@ -330,9 +355,10 @@ def get_overseas_unfilled_orders(stk_cd: str = "", mode: str = "demo") -> dict:
     return _post(mode, "overseas", "ust21050", "/api/us/acnt", body)
 
 
-def get_overseas_balance(stk_cd: str = "", mode: str = "demo") -> dict:
-    """미국주식 원장잔고확인(ust21070)."""
-    body = {"stex_tp": "", "stk_cd": stk_cd}
+def get_overseas_balance(stk_cd: str = "", stex_tp: str = "ND", mode: str = "demo") -> dict:
+    """미국주식 원장잔고확인(ust21070). stex_tp는 실측으로 필수(빈 값이면 "거래소 구분값이
+    없습니다" 에러) — 계좌 전체 잔고를 보려면 ND/NY/NA를 각각 호출해서 합쳐야 한다."""
+    body = {"stex_tp": stex_tp, "stk_cd": stk_cd}
     return _post(mode, "overseas", "ust21070", "/api/us/acnt", body)
 
 
