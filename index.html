@@ -740,23 +740,36 @@
 
   let liveHistoryRangeHours = 24; // 필터 버튼으로 바뀌는 현재 선택 구간, 60초 자동갱신도 이 값을 씀
 
-  async function fetchLiveHistory(hours = liveHistoryRangeHours) {
-    liveHistoryRangeHours = hours;
-    try {
-      // PostgREST(Supabase)는 요청한 limit(5000)과 무관하게 서버 기본 max-rows(1000)로
-      // 응답을 자른다(2026-07-26 실측: 7일치 3224건 중 0-999만 반환됨). 예전처럼
-      // order=asc로 앞에서부터 1000개를 받으면 정작 "지금"에 가까운 데이터는 통째로
-      // 빠지고, xScale이 인덱스 기준이라 잘린 오래된 데이터가 그래프 오른쪽 끝(=지금
-      // 자리)에 그려져서 "실시간 계산"(진짜 최신값)과 다른 숫자가 나왔었다. desc로
-      // 최신 1000개를 받은 뒤 화면 표시용으로만 시간순으로 뒤집는다 — 잘리더라도
-      // 옛날 데이터가 잘리는 게 맞다.
-      const sinceIso = new Date(Date.now() - hours * 3600 * 1000).toISOString();
+  // PostgREST(Supabase)는 요청한 limit과 무관하게 서버 기본 max-rows(1000)로 한 번의
+  // 응답을 자른다(2026-07-26 실측: 7일치 3224건 중 0-999만 반환됨). DB에는 데이터가
+  // 전부 그대로 쌓여있으니(지워지는 게 아니라 한 번에 못 받아오는 것뿐), offset을
+  // 옮겨가며 여러 번 나눠 받아서 요청한 기간 전체를 다 채운다. desc로 최신 페이지부터
+  // 받는 이유: 도중에 실패하거나 페이지 수를 못 채워도 최소한 "최근" 데이터는 항상
+  // 확보되게 하기 위함(과거 데이터가 빠지는 게 최신 데이터가 빠지는 것보다 낫다).
+  const SUPABASE_PAGE_SIZE = 1000;
+
+  async function fetchAllLiveScores(sinceIso) {
+    const rows = [];
+    let offset = 0;
+    while (true) {
       const res = await fetch(
-        `${SUPABASE_URL}/rest/v1/live_scores?source=eq.price_based&computed_at=gte.${sinceIso}&order=computed_at.desc&limit=5000`,
+        `${SUPABASE_URL}/rest/v1/live_scores?source=eq.price_based&computed_at=gte.${sinceIso}&order=computed_at.desc&limit=${SUPABASE_PAGE_SIZE}&offset=${offset}`,
         { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
       );
       if (!res.ok) throw new Error("서버 응답 오류 (" + res.status + ")");
-      const rows = await res.json();
+      const page = await res.json();
+      rows.push(...page);
+      if (page.length < SUPABASE_PAGE_SIZE) break; // 마지막 페이지(그 기간의 가장 오래된 데이터까지 다 받음)
+      offset += SUPABASE_PAGE_SIZE;
+    }
+    return rows;
+  }
+
+  async function fetchLiveHistory(hours = liveHistoryRangeHours) {
+    liveHistoryRangeHours = hours;
+    try {
+      const sinceIso = new Date(Date.now() - hours * 3600 * 1000).toISOString();
+      const rows = await fetchAllLiveScores(sinceIso);
       const data = rows.reverse().map((r) => ({ time: new Date(r.computed_at), score: Number(r.score) }));
       renderLiveHistoryChart(data);
     } catch (err) {
