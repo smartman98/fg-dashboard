@@ -584,21 +584,10 @@
     renderCompareAll(currentCompareRange);
   }
 
-  // "F&G 지수 추이" 메인 차트도 같은 이유로 최신 실시간 값과 어긋나 보일 수 있다(예:
-  // 주말이라 실제 CNN 값이 없어서 배치 시점의 가격기반 추정치(source=price_based)가 그대로
-  // 남아있던 경우). 오늘자 항목이 이미 실제(cnn_real) 값이면 건드리지 않고, 가격기반
-  // 추정치이거나 아예 없을 때만 최신 실시간 값으로 갱신/추가한다 — 실제 공식 CNN 값을
-  // 실시간 추정치로 덮어쓰면 안 되기 때문.
-  function syncHistoryWithLive(liveScore, liveDate) {
-    const dateStr = toKstDateStr(liveDate);
-    const existing = history.find((row) => row.date === dateStr);
-    if (existing) {
-      if (existing.source === "price_based") existing.score = liveScore;
-    } else {
-      history.push({ date: dateStr, score: liveScore, source: "price_based" });
-    }
-    renderAll(currentRange);
-  }
+  // "F&G 지수 추이" 차트는 실제 CNN 지수만 보여준다(2026-07-26 확정 — "F&G 지수차트는
+  // CNN F&G지수 값만 쓰는거야"). 그래서 comparison과 달리 이 차트는 실시간 가격기반
+  // 추정치를 주입하지 않는다 — export_dashboard_data.py에서 애초에 real_score가 없는
+  // 2011년 이후 날짜(주말 등)는 history에서 제외하도록 처리함.
 
   async function fetchLiveScore() {
     const scoreEl = document.getElementById("live-score");
@@ -622,7 +611,6 @@
       const timeLabel = computedAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
       updatedEl.textContent = `${dateLabel} ${timeLabel}`;
       syncComparisonWithLive(liveScore, computedAt);
-      syncHistoryWithLive(liveScore, computedAt);
     } catch (err) {
       scoreEl.textContent = "불러오기 실패";
       updatedEl.textContent = "";
