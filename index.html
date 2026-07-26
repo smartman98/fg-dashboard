@@ -557,6 +557,32 @@
   const SUPABASE_URL = "https://wckohdcjpjlzeaiehmzs.supabase.co";
   const SUPABASE_KEY = "sb_publishable_4fPOT_f1VwEvH4gEXumgjg_JH-7X_mY";
 
+  let currentCompareRange = "90"; // "F&G vs 일별 계산값" 차트의 현재 선택 구간 (실시간 동기화 재렌더링에 씀
+
+  function toKstDateStr(date) {
+    // comparison 배열의 date는 시각 없는 "그 날짜"(한국 거래일) 기준이라, UTC 타임스탬프를
+    // 그대로 slice하면 자정 근처에 하루가 밀릴 수 있어 KST로 보정해서 날짜만 뽑는다.
+    const kst = new Date(date.getTime() + 9 * 3600 * 1000);
+    return kst.toISOString().slice(0, 10);
+  }
+
+  // "F&G vs 일별 계산값" 차트는 배치(build_index.py)로 하루 한 번 정도만 갱신되는 정적
+  // 데이터라, 최근 실시간 계산값과 어긋나 보일 수 있었다(2026-07-25 사용자 피드백).
+  // 실시간 값을 받아올 때마다 comparison의 "오늘" 항목을 그 값으로 덮어써서(또는 없으면
+  // 새로 추가해서) 두 차트가 같은 날짜에 대해 항상 같은 숫자를 보여주게 한다. "실제(CNN)"
+  // 값은 주말/휴장일엔 아예 없을 수 있어서, 없으면 직전 값을 그대로 이어서 보여준다.
+  function syncComparisonWithLive(liveScore, liveDate) {
+    const dateStr = toKstDateStr(liveDate);
+    const existing = comparison.find((row) => row.date === dateStr);
+    if (existing) {
+      existing.calculated = liveScore;
+    } else {
+      const prevReal = comparison.length ? comparison[comparison.length - 1].real : null;
+      comparison.push({ date: dateStr, real: prevReal, calculated: liveScore });
+    }
+    renderCompareAll(currentCompareRange);
+  }
+
   async function fetchLiveScore() {
     const scoreEl = document.getElementById("live-score");
     const updatedEl = document.getElementById("live-updated");
@@ -572,11 +598,13 @@
         updatedEl.textContent = "";
         return;
       }
-      scoreEl.textContent = Number(rows[0].score).toFixed(1);
+      const liveScore = Number(rows[0].score);
+      scoreEl.textContent = liveScore.toFixed(1);
       const computedAt = new Date(rows[0].computed_at);
       const dateLabel = computedAt.toLocaleDateString("ko-KR");
       const timeLabel = computedAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
       updatedEl.textContent = `${dateLabel} ${timeLabel}`;
+      syncComparisonWithLive(liveScore, computedAt);
     } catch (err) {
       scoreEl.textContent = "불러오기 실패";
       updatedEl.textContent = "";
@@ -1225,7 +1253,8 @@
     if (!btn) return;
     document.querySelectorAll("#compare-filter-row .filter-btn").forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
-    renderCompareAll(btn.dataset.range);
+    currentCompareRange = btn.dataset.range;
+    renderCompareAll(currentCompareRange);
   });
 
   document.getElementById("live-history-filter-row").addEventListener("click", (e) => {
