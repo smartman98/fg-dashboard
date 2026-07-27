@@ -748,12 +748,12 @@
   // 확보되게 하기 위함(과거 데이터가 빠지는 게 최신 데이터가 빠지는 것보다 낫다).
   const SUPABASE_PAGE_SIZE = 1000;
 
-  async function fetchAllLiveScores(sinceIso) {
+  async function fetchAllLiveScores(sinceIso, source = "price_based") {
     const rows = [];
     let offset = 0;
     while (true) {
       const res = await fetch(
-        `${SUPABASE_URL}/rest/v1/live_scores?source=eq.price_based&computed_at=gte.${sinceIso}&order=computed_at.desc&limit=${SUPABASE_PAGE_SIZE}&offset=${offset}`,
+        `${SUPABASE_URL}/rest/v1/live_scores?source=eq.${source}&computed_at=gte.${sinceIso}&order=computed_at.desc&limit=${SUPABASE_PAGE_SIZE}&offset=${offset}`,
         { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
       );
       if (!res.ok) throw new Error("서버 응답 오류 (" + res.status + ")");
@@ -774,6 +774,74 @@
       renderLiveHistoryChart(data);
     } catch (err) {
       document.getElementById("live-history-chart").innerHTML = "";
+    }
+  }
+
+  // dateField: cnn_real은 실제로 "그 값이 언제 날짜 것인지"가 as_of에 있고 computed_at은
+  // 그냥 "언제 확인했나"라 주말에도 매번 새로 찍힌다(CNN이 새 값을 안 줘도). computed_at
+  // 기준으로 묶으면 주말/휴장일에 같은 오래된 값이 여러 날짜에 중복 배정된다 — 그래서
+  // cnn_real은 as_of로, daily_snapshot(그 자체가 "오늘" 기준으로 한 번만 찍음)은
+  // computed_at으로 묶는다.
+  function groupLatestByKstDate(rows, dateField) {
+    const byDate = new Map();
+    for (const r of rows) {
+      const dateStr = toKstDateStr(new Date(r[dateField]));
+      const existing = byDate.get(dateStr);
+      if (!existing || new Date(r.computed_at) > new Date(existing.computed_at)) {
+        byDate.set(dateStr, r);
+      }
+    }
+    return byDate;
+  }
+
+  // 정적 배치 내보내기(FG_DATA, build_index.py 수동 실행 시점까지만 있음)가 못 다루는
+  // "그 이후" 날짜를, 이제 매일 자동으로 쌓이는 Supabase의 daily_snapshot(계산값)/
+  // cnn_real(실제값)로 채운다 — build_index.py를 다시 안 돌려도 두 차트가 매일 자동으로
+  // 이어진다(2026-07-27, "일별 계산치는 꼭 저장해야된다" 후속 작업).
+  async function syncDailyDataFromSupabase() {
+    try {
+      const lastDate = comparison.length ? comparison[comparison.length - 1].date : "2000-01-01";
+      const sinceIso = new Date(lastDate + "T00:00:00+09:00").toISOString();
+
+      const [dailyRows, cnnRows] = await Promise.all([
+        fetchAllLiveScores(sinceIso, "daily_snapshot"),
+        fetchAllLiveScores(sinceIso, "cnn_real"),
+      ]);
+      const dailyByDate = groupLatestByKstDate(dailyRows, "computed_at");
+      const cnnByDate = groupLatestByKstDate(cnnRows, "as_of");
+
+      const newDates = new Set([...dailyByDate.keys(), ...cnnByDate.keys()].filter((d) => d > lastDate));
+      for (const dateStr of newDates) {
+        const dailyRow = dailyByDate.get(dateStr);
+        const cnnRow = cnnByDate.get(dateStr);
+
+        // comparison: 실제/계산 중 이번에 새로 안 들어온 쪽은 직전 값을 이어서 채운다
+        // (표시용, syncComparisonWithLive와 같은 원칙).
+        if (dailyRow || cnnRow) {
+          const prevReal = comparison.length ? comparison[comparison.length - 1].real : null;
+          const prevCalc = comparison.length ? comparison[comparison.length - 1].calculated : null;
+          let entry = comparison.find((row) => row.date === dateStr);
+          if (!entry) {
+            entry = { date: dateStr, real: prevReal, calculated: prevCalc };
+            comparison.push(entry);
+          }
+          if (cnnRow) entry.real = Number(cnnRow.score);
+          if (dailyRow) entry.calculated = Number(dailyRow.score);
+        }
+
+        // history: CNN 실제값만(2026-07-26 확정 — "F&G 지수차트는 CNN F&G지수 값만 쓰는거야").
+        if (cnnRow && !history.find((row) => row.date === dateStr)) {
+          history.push({ date: dateStr, score: Number(cnnRow.score), source: "cnn_real" });
+        }
+      }
+
+      comparison.sort((a, b) => a.date.localeCompare(b.date));
+      history.sort((a, b) => a.date.localeCompare(b.date));
+
+      renderAll(currentRange);
+      renderCompareAll(currentCompareRange);
+    } catch (err) {
+      // 실패해도 정적 데이터로 화면은 이미 정상 표시되니 조용히 넘어간다.
     }
   }
 
@@ -1307,9 +1375,11 @@
   fetchLiveScore();
   fetchLiveHistory();
   fetchCnnRealScore();
+  syncDailyDataFromSupabase(); // 정적 내보내기 이후 날짜를 Supabase의 매일 자동 기록으로 채움
   setInterval(fetchLiveScore, 60000); // 화면을 열어둔 동안 1분마다 최신값 재조회
   setInterval(fetchLiveHistory, 60000);
   setInterval(fetchCnnRealScore, 60000);
+  setInterval(syncDailyDataFromSupabase, 300000); // 5분마다 새 날짜가 생겼는지 재확인
 })();
 </script>
 </body>

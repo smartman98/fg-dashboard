@@ -144,6 +144,20 @@ def has_daily_snapshot_today() -> bool:
     return len(response.json()) > 0
 
 
+# 2026-07-27 수정: "일별 계산값"은 그날의 종가 개념이어야 의미가 있다(사용자: "종가가
+# 있어야 쌓을 수 있잖아... 저녁 12시를 기준으로 하는 게 어때"). 하루 중 아무 때나(예:
+# 자정 막 넘긴 직후) 처음 도는 실행에서 잡아버리면 사실상 "어제 마지막 값"이나 다름없어
+# 종가라고 부르기 애매하다. 그래서 한국시간 23:55~23:59, 하루가 끝나기 직전 5분 창에서만
+# 기록하도록 창을 좁혔다(1분 주기 크론이므로 이 창 안에서 최소 한 번은 반드시 걸린다).
+_SNAPSHOT_WINDOW_KST_HOUR = 23
+_SNAPSHOT_WINDOW_KST_MINUTE_MIN = 55
+
+
+def is_in_daily_snapshot_window() -> bool:
+    now_kst = pd.Timestamp.now(tz="UTC") + pd.Timedelta(hours=9)
+    return now_kst.hour == _SNAPSHOT_WINDOW_KST_HOUR and now_kst.minute >= _SNAPSHOT_WINDOW_KST_MINUTE_MIN
+
+
 if __name__ == "__main__":
     rows = []
 
@@ -167,12 +181,12 @@ if __name__ == "__main__":
     rows.append(cnn_row)
 
     # "일별 계산값"을 CSV+수동 build_index.py 실행에만 의존하지 않고 DB에도 확실히
-    # 남긴다(2026-07-26 요청: "일별 계산치는 꼭 저장해야된다"). 오늘 날짜로 이미 하나
-    # 있으면 건드리지 않고, 없으면 이번 실행의 값으로 딱 하나만 새로 남긴다 — 그래서
-    # 하루에 한 번만 실제로 기록되고(예: 자정 넘어 첫 실행), 이후 갱신 없이 그날의
-    # 기록으로 고정된다.
+    # 남긴다(2026-07-26 요청: "일별 계산치는 꼭 저장해야된다"). 그날의 "종가" 개념이
+    # 되도록 한국시간 23:55~23:59에만 기록한다(2026-07-27 수정 — 사용자: "종가가 있어야
+    # 쌓을 수 있잖아... 저녁 12시를 기준으로"). 그 창 안에서 오늘 날짜로 아직 없으면
+    # 딱 한 번만 남긴다.
     try:
-        if not has_daily_snapshot_today():
+        if is_in_daily_snapshot_window() and not has_daily_snapshot_today():
             daily_score = price_based["score"] if price_based else cnn_score
             daily_source_note = "price_based" if price_based else "cnn_real"
             rows.append({
@@ -180,7 +194,7 @@ if __name__ == "__main__":
                 "score": daily_score,
                 "source": "daily_snapshot",
             })
-            print(f"오늘의 일별 계산값 최초 기록: {daily_score} (기준: {daily_source_note})")
+            print(f"오늘의 종가성 일별 계산값 기록: {daily_score} (기준: {daily_source_note})")
     except Exception as exc:  # noqa: BLE001
         print(f"일별 계산값 저장 확인 실패(다음 실행에 재시도): {exc}")
 
