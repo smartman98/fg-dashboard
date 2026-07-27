@@ -93,27 +93,62 @@ def compute_live_score() -> dict:
     }
 
 
+def _supabase_headers(supabase_key: str) -> dict:
+    return {
+        "apikey": supabase_key,
+        "Authorization": f"Bearer {supabase_key}",
+        "Content-Type": "application/json",
+    }
+
+
 def save_to_supabase(rows: list[dict]) -> None:
     supabase_url = os.environ["SUPABASE_URL"]
     supabase_key = os.environ["SUPABASE_KEY"]
 
     response = requests.post(
         f"{supabase_url}/rest/v1/live_scores",
-        headers={
-            "apikey": supabase_key,
-            "Authorization": f"Bearer {supabase_key}",
-            "Content-Type": "application/json",
-        },
+        headers=_supabase_headers(supabase_key),
         json=rows,
         timeout=20,
     )
     response.raise_for_status()
 
 
+def _kst_today_range_utc() -> tuple[str, str]:
+    """오늘(한국시간) 00:00~24:00을 UTC ISO 문자열 범위로 반환한다."""
+    now_kst = pd.Timestamp.now(tz="UTC") + pd.Timedelta(hours=9)
+    start_kst = now_kst.normalize()
+    end_kst = start_kst + pd.Timedelta(days=1)
+    return (
+        (start_kst - pd.Timedelta(hours=9)).isoformat(),
+        (end_kst - pd.Timedelta(hours=9)).isoformat(),
+    )
+
+
+def has_daily_snapshot_today() -> bool:
+    supabase_url = os.environ["SUPABASE_URL"]
+    supabase_key = os.environ["SUPABASE_KEY"]
+    start_iso, end_iso = _kst_today_range_utc()
+    response = requests.get(
+        f"{supabase_url}/rest/v1/live_scores",
+        headers=_supabase_headers(supabase_key),
+        params={
+            "source": "eq.daily_snapshot",
+            "computed_at": [f"gte.{start_iso}", f"lt.{end_iso}"],
+            "select": "id",
+            "limit": "1",
+        },
+        timeout=20,
+    )
+    response.raise_for_status()
+    return len(response.json()) > 0
+
+
 if __name__ == "__main__":
     rows = []
 
     # KIS가 가끔 500/rate-limit을 던지는데, 그것 때문에 CNN 실제값까지 못 남기면 안 된다.
+    price_based = None
     try:
         price_based = compute_live_score()
         print(f"가격 기반 계산: {price_based}")
@@ -122,13 +157,32 @@ if __name__ == "__main__":
         print(f"가격 기반 계산 실패(KIS 오류 등), 이번 실행은 CNN 실제값만 저장합니다: {exc}")
 
     cnn_real = fetch_latest_score()
+    cnn_score = round(float(cnn_real["score"]), 2)
     cnn_row = {
         "as_of": cnn_real["date"].isoformat(),
-        "score": round(float(cnn_real["score"]), 2),
+        "score": cnn_score,
         "source": "cnn_real",
     }
     print(f"CNN 실제값: {cnn_row}")
     rows.append(cnn_row)
+
+    # "일별 계산값"을 CSV+수동 build_index.py 실행에만 의존하지 않고 DB에도 확실히
+    # 남긴다(2026-07-26 요청: "일별 계산치는 꼭 저장해야된다"). 오늘 날짜로 이미 하나
+    # 있으면 건드리지 않고, 없으면 이번 실행의 값으로 딱 하나만 새로 남긴다 — 그래서
+    # 하루에 한 번만 실제로 기록되고(예: 자정 넘어 첫 실행), 이후 갱신 없이 그날의
+    # 기록으로 고정된다.
+    try:
+        if not has_daily_snapshot_today():
+            daily_score = price_based["score"] if price_based else cnn_score
+            daily_source_note = "price_based" if price_based else "cnn_real"
+            rows.append({
+                "as_of": pd.Timestamp.now(tz="UTC").isoformat(),
+                "score": daily_score,
+                "source": "daily_snapshot",
+            })
+            print(f"오늘의 일별 계산값 최초 기록: {daily_score} (기준: {daily_source_note})")
+    except Exception as exc:  # noqa: BLE001
+        print(f"일별 계산값 저장 확인 실패(다음 실행에 재시도): {exc}")
 
     save_to_supabase(rows)
     print(f"Supabase 저장 완료 ({len(rows)}개)")
