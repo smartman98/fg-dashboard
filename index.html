@@ -662,6 +662,8 @@
     linePath.setAttribute("stroke-linecap", "round");
     svg.appendChild(linePath);
 
+    addMinMaxMarkers(svg, data, (d) => d.score);
+
     const lastX = xScale(n - 1, n), lastY = yScale(data[n - 1].score);
     const endDot = document.createElementNS(ns, "circle");
     endDot.setAttribute("cx", lastX);
@@ -1082,6 +1084,58 @@
     return hitArea;
   }
 
+  // 최저점/최고점 표시 (모든 라인 차트 공용)
+  // placedLabels: 여러 시리즈(예: 비교 차트의 real/calculated)가 같은 자리에 라벨을 겹쳐
+  // 그리지 않도록 이미 놓인 라벨 위치를 공유하는 배열. 넘기지 않으면 이번 호출 안에서만 겹침을 피한다.
+  function addMinMaxMarkers(svg, data, valueFn, color, placedLabels) {
+    const n = data.length;
+    if (n === 0) return;
+    let minIdx = 0, maxIdx = 0;
+    for (let i = 1; i < n; i++) {
+      if (valueFn(data[i]) < valueFn(data[minIdx])) minIdx = i;
+      if (valueFn(data[i]) > valueFn(data[maxIdx])) maxIdx = i;
+    }
+    const markColor = color || "var(--text-primary)";
+    const placed = placedLabels || [];
+    const LABEL_W = 56, LABEL_H = 14;
+    [
+      { idx: maxIdx, tag: "최고" },
+      { idx: minIdx, tag: "최저" },
+    ].forEach(({ idx, tag }) => {
+      const px = xScale(idx, n), py = yScale(valueFn(data[idx]));
+      const dot = document.createElementNS(SVG_NS, "circle");
+      dot.setAttribute("cx", px);
+      dot.setAttribute("cy", py);
+      dot.setAttribute("r", "4");
+      dot.setAttribute("fill", "var(--surface-1)");
+      dot.setAttribute("stroke", markColor);
+      dot.setAttribute("stroke-width", "2");
+      svg.appendChild(dot);
+
+      // 이미 놓인 라벨과 겹치면 같은 방향으로 한 줄씩 더 밀어낸다.
+      const step = tag === "최고" ? -LABEL_H : LABEL_H;
+      let ty = py + (tag === "최고" ? -10 : 16);
+      let guard = 0;
+      while (
+        placed.some((p) => Math.abs(p.x - px) < LABEL_W && Math.abs(p.y - ty) < LABEL_H) &&
+        guard++ < 8
+      ) {
+        ty += step;
+      }
+      placed.push({ x: px, y: ty });
+
+      const label = document.createElementNS(SVG_NS, "text");
+      label.setAttribute("x", px);
+      label.setAttribute("y", ty);
+      label.setAttribute("text-anchor", "middle");
+      label.setAttribute("font-size", "10");
+      label.setAttribute("font-weight", "700");
+      label.setAttribute("fill", markColor);
+      label.textContent = `${tag} ${valueFn(data[idx]).toFixed(1)}`;
+      svg.appendChild(label);
+    });
+  }
+
   function renderChart(data) {
     const svg = document.getElementById("chart");
     svg.innerHTML = "";
@@ -1127,6 +1181,8 @@
     linePath.setAttribute("stroke-linejoin", "round");
     linePath.setAttribute("stroke-linecap", "round");
     svg.appendChild(linePath);
+
+    addMinMaxMarkers(svg, data, (d) => d.score);
 
     // 끝점 표시 + 직접 라벨 (오늘 값)
     const lastX = xScale(n - 1, n), lastY = yScale(data[n - 1].score);
@@ -1269,6 +1325,10 @@
 
     buildLine("real", "var(--cat-1)");
     buildLine("calculated", "var(--cat-2)");
+
+    const placedLabels = [];
+    addMinMaxMarkers(svg, data, (d) => d.real, "var(--cat-1)", placedLabels);
+    addMinMaxMarkers(svg, data, (d) => d.calculated, "var(--cat-2)", placedLabels);
 
     // 크로스헤어 + 툴팁
     const crosshair = createCrosshair(svg);
