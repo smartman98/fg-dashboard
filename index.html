@@ -662,10 +662,9 @@
     linePath.setAttribute("stroke-linecap", "round");
     svg.appendChild(linePath);
 
-    // 끝점(현재값) 라벨 자리를 먼저 예약해 두고 최고/최저 라벨이 겹치지 않게 한다.
     const lastX = xScale(n - 1, n), lastY = yScale(data[n - 1].score);
-    const endLabelReserved = [{ x: lastX - 15, y: lastY - 10 }];
-    addMinMaxMarkers(svg, data, (d) => d.score, null, endLabelReserved);
+    // 최고/최저가 현재값과 같은 자리면 그 표시는 생략한다(skipIdx = 마지막 인덱스).
+    addMinMaxMarkers(svg, data, (d) => d.score, null, null, n - 1);
 
     const endDot = document.createElementNS(ns, "circle");
     endDot.setAttribute("cx", lastX);
@@ -1089,7 +1088,10 @@
   // 최저점/최고점 표시 (모든 라인 차트 공용)
   // placedLabels: 여러 시리즈(예: 비교 차트의 real/calculated)가 같은 자리에 라벨을 겹쳐
   // 그리지 않도록 이미 놓인 라벨 위치를 공유하는 배열. 넘기지 않으면 이번 호출 안에서만 겹침을 피한다.
-  function addMinMaxMarkers(svg, data, valueFn, color, placedLabels) {
+  // skipIdx: 이 인덱스(보통 마지막 값=현재값)와 x축상 가까우면 그 최고/최저 표시를 아예 생략한다.
+  // 밀어내기로는 "최고값이 곧 현재값"인 경우를 못 풀어서(둘이 같은 자리라 밀 방향이 없음),
+  // 자리가 겹칠 땐 표시 자체를 하나로 줄이는 쪽이 더 안전하다.
+  function addMinMaxMarkers(svg, data, valueFn, color, placedLabels, skipIdx) {
     const n = data.length;
     if (n === 0) return;
     let minIdx = 0, maxIdx = 0;
@@ -1099,11 +1101,13 @@
     }
     const placed = placedLabels || [];
     const LABEL_W = 60, LABEL_H = 20;
+    const skipPx = skipIdx == null ? null : xScale(skipIdx, n);
     [
       { idx: maxIdx, tag: "최고", markColor: "var(--diverge-red)" },
       { idx: minIdx, tag: "최저", markColor: "var(--diverge-blue)" },
     ].forEach(({ idx, tag, markColor }) => {
       const px = xScale(idx, n), py = yScale(valueFn(data[idx]));
+      if (skipPx !== null && Math.abs(px - skipPx) < LABEL_W) return;
       const dot = document.createElementNS(SVG_NS, "circle");
       dot.setAttribute("cx", px);
       dot.setAttribute("cy", py);
@@ -1183,10 +1187,9 @@
     linePath.setAttribute("stroke-linecap", "round");
     svg.appendChild(linePath);
 
-    // 끝점(오늘 값) 라벨 자리를 먼저 예약해 두고 최고/최저 라벨이 겹치지 않게 한다.
     const lastX = xScale(n - 1, n), lastY = yScale(data[n - 1].score);
-    const endLabelReserved = [{ x: lastX - 15, y: lastY - 10 }];
-    addMinMaxMarkers(svg, data, (d) => d.score, null, endLabelReserved);
+    // 최고/최저가 오늘 값과 같은 자리면 그 표시는 생략한다(skipIdx = 마지막 인덱스).
+    addMinMaxMarkers(svg, data, (d) => d.score, null, null, n - 1);
 
     // 끝점 표시 + 직접 라벨 (오늘 값)
     const endDot = document.createElementNS(ns, "circle");
