@@ -662,9 +662,11 @@
     linePath.setAttribute("stroke-linecap", "round");
     svg.appendChild(linePath);
 
-    addMinMaxMarkers(svg, data, (d) => d.score);
-
+    // 끝점(현재값) 라벨 자리를 먼저 예약해 두고 최고/최저 라벨이 겹치지 않게 한다.
     const lastX = xScale(n - 1, n), lastY = yScale(data[n - 1].score);
+    const endLabelReserved = [{ x: lastX - 15, y: lastY - 10 }];
+    addMinMaxMarkers(svg, data, (d) => d.score, null, endLabelReserved);
+
     const endDot = document.createElementNS(ns, "circle");
     endDot.setAttribute("cx", lastX);
     endDot.setAttribute("cy", lastY);
@@ -1095,13 +1097,12 @@
       if (valueFn(data[i]) < valueFn(data[minIdx])) minIdx = i;
       if (valueFn(data[i]) > valueFn(data[maxIdx])) maxIdx = i;
     }
-    const markColor = color || "var(--text-primary)";
     const placed = placedLabels || [];
     const LABEL_W = 56, LABEL_H = 14;
     [
-      { idx: maxIdx, tag: "최고" },
-      { idx: minIdx, tag: "최저" },
-    ].forEach(({ idx, tag }) => {
+      { idx: maxIdx, tag: "최고", markColor: "var(--diverge-red)" },
+      { idx: minIdx, tag: "최저", markColor: "var(--diverge-blue)" },
+    ].forEach(({ idx, tag, markColor }) => {
       const px = xScale(idx, n), py = yScale(valueFn(data[idx]));
       const dot = document.createElementNS(SVG_NS, "circle");
       dot.setAttribute("cx", px);
@@ -1182,10 +1183,12 @@
     linePath.setAttribute("stroke-linecap", "round");
     svg.appendChild(linePath);
 
-    addMinMaxMarkers(svg, data, (d) => d.score);
+    // 끝점(오늘 값) 라벨 자리를 먼저 예약해 두고 최고/최저 라벨이 겹치지 않게 한다.
+    const lastX = xScale(n - 1, n), lastY = yScale(data[n - 1].score);
+    const endLabelReserved = [{ x: lastX - 15, y: lastY - 10 }];
+    addMinMaxMarkers(svg, data, (d) => d.score, null, endLabelReserved);
 
     // 끝점 표시 + 직접 라벨 (오늘 값)
-    const lastX = xScale(n - 1, n), lastY = yScale(data[n - 1].score);
     const endDot = document.createElementNS(ns, "circle");
     endDot.setAttribute("cx", lastX);
     endDot.setAttribute("cy", lastY);
@@ -1326,9 +1329,38 @@
     buildLine("real", "var(--cat-1)");
     buildLine("calculated", "var(--cat-2)");
 
-    const placedLabels = [];
-    addMinMaxMarkers(svg, data, (d) => d.real, "var(--cat-1)", placedLabels);
-    addMinMaxMarkers(svg, data, (d) => d.calculated, "var(--cat-2)", placedLabels);
+    // 두 시리즈(F&G, 계산값)를 통틀어 전체 최고 하나, 전체 최저 하나만 표시한다.
+    let hi = { v: -Infinity }, lo = { v: Infinity };
+    data.forEach((row, i) => {
+      if (row.real > hi.v) hi = { v: row.real, i };
+      if (row.calculated > hi.v) hi = { v: row.calculated, i };
+      if (row.real < lo.v) lo = { v: row.real, i };
+      if (row.calculated < lo.v) lo = { v: row.calculated, i };
+    });
+    [
+      { point: hi, tag: "최고", markColor: "var(--diverge-red)" },
+      { point: lo, tag: "최저", markColor: "var(--diverge-blue)" },
+    ].forEach(({ point, tag, markColor }) => {
+      const px = xScale(point.i, n), py = yScale(point.v);
+      const dot = document.createElementNS(ns, "circle");
+      dot.setAttribute("cx", px);
+      dot.setAttribute("cy", py);
+      dot.setAttribute("r", "4");
+      dot.setAttribute("fill", "var(--surface-1)");
+      dot.setAttribute("stroke", markColor);
+      dot.setAttribute("stroke-width", "2");
+      svg.appendChild(dot);
+
+      const label = document.createElementNS(ns, "text");
+      label.setAttribute("x", px);
+      label.setAttribute("y", tag === "최고" ? py - 10 : py + 16);
+      label.setAttribute("text-anchor", "middle");
+      label.setAttribute("font-size", "10");
+      label.setAttribute("font-weight", "700");
+      label.setAttribute("fill", markColor);
+      label.textContent = `${tag} ${point.v.toFixed(1)}`;
+      svg.appendChild(label);
+    });
 
     // 크로스헤어 + 툴팁
     const crosshair = createCrosshair(svg);
