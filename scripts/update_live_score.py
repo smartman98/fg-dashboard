@@ -63,14 +63,15 @@ def compute_live_score() -> dict:
         series_map[ticker] = series.sort_index()
 
     # 2020-09-18 이후는 CNN이 공개하는 나머지 3개 지표(풋/콜·강도·폭)를 받아서
-    # 8개 지표 모델을 쓴다. 실패하면(네트워크 문제 등) 5개 지표 모델로 자동 대체.
-    try:
-        extra = fetch_components().set_index("date").sort_index()
-        extra = extra.reindex(series_map["QQQ"].index).ffill()
-        put_call, strength, breadth = extra["put_call"], extra["strength"], extra["breadth"]
-    except Exception as exc:  # noqa: BLE001
-        print(f"3개 추가 지표 조회 실패, 5개 지표 모델로 대체합니다: {exc}")
-        put_call = strength = breadth = None
+    # 8개 지표 모델을 쓴다. 이 8개 지표 모델(상관계수 0.834)과 5개 지표 모델(0.729,
+    # 사용자가 정한 기준 0.75 미달)은 스케일 자체가 달라서, 조회가 실패할 때마다
+    # 5개 지표 모델로 조용히 대체하면 같은 가격에도 값이 몇 점씩 튀어 보인다
+    # (2026-08-11 실측: 같은 순간 8개 모델 50.25 vs 5개 모델 53.86 — 대시보드에
+    # "50대↔55대"로 튀는 것으로 관측됨). 그래서 실패하면 이번 실행은 값을 저장하지
+    # 않고 건너뛴다 — 대시보드에는 마지막으로 성공한 8개 지표 모델 값이 그대로 남는다.
+    extra = fetch_components().set_index("date").sort_index()
+    extra = extra.reindex(series_map["QQQ"].index).ffill()
+    put_call, strength, breadth = extra["put_call"], extra["strength"], extra["breadth"]
 
     fg_series = compute_price_based_fg(
         qqq=series_map["QQQ"],
