@@ -126,6 +126,63 @@ def _kst_today_range_utc() -> tuple[str, str]:
     )
 
 
+def get_previous_daily_snapshot() -> float | None:
+    """오늘 이전의 가장 최근 daily_snapshot 점수를 반환한다(없으면 None)."""
+    supabase_url = os.environ["SUPABASE_URL"]
+    supabase_key = os.environ["SUPABASE_KEY"]
+    start_iso, _ = _kst_today_range_utc()
+    response = requests.get(
+        f"{supabase_url}/rest/v1/live_scores",
+        headers=_supabase_headers(supabase_key),
+        params={
+            "source": "eq.daily_snapshot",
+            "computed_at": f"lt.{start_iso}",
+            "select": "score",
+            "order": "computed_at.desc",
+            "limit": "1",
+        },
+        timeout=20,
+    )
+    response.raise_for_status()
+    rows = response.json()
+    return float(rows[0]["score"]) if rows else None
+
+
+def save_signal_note(fg_score: float, rating: str, signal: str, note: str) -> None:
+    """대시보드 "기록" 목록(signal_notes 표)에 자동 메모를 남긴다."""
+    supabase_url = os.environ["SUPABASE_URL"]
+    supabase_key = os.environ["SUPABASE_KEY"]
+    response = requests.post(
+        f"{supabase_url}/rest/v1/signal_notes",
+        headers=_supabase_headers(supabase_key),
+        json={"fg_score": fg_score, "rating": rating, "signal": signal, "note": note},
+        timeout=20,
+    )
+    response.raise_for_status()
+
+
+def diagnose_anomaly() -> str:
+    """이상 감지 시, 어떤 티커가 얼마나 움직였는지·캐시가 오래됐는지를 사람이 읽을 문장으로 만든다."""
+    history = _load_cached_history()
+    live_quotes = {ticker: fetch_live_quote(ticker) for ticker in TICKERS}
+
+    moves = {}
+    for ticker in TICKERS:
+        prev_close = float(history[ticker].iloc[-1])
+        now_price = float(live_quotes[ticker]["price"])
+        moves[ticker] = (now_price - prev_close) / prev_close * 100
+
+    top_ticker = max(moves, key=lambda t: abs(moves[t]))
+    cache_age = (pd.Timestamp.now().normalize() - history.index.max()).days
+    move_str = ", ".join(f"{t} {v:+.2f}%" for t, v in moves.items())
+
+    return (
+        f"티커별 변동(캐시 마지막 종가 대비 현재가): {move_str}. "
+        f"가장 크게 움직인 건 {top_ticker}({moves[top_ticker]:+.2f}%). "
+        f"price_cache.csv는 {cache_age}일 전 데이터."
+    )
+
+
 def has_daily_snapshot_today() -> bool:
     supabase_url = os.environ["SUPABASE_URL"]
     supabase_key = os.environ["SUPABASE_KEY"]
@@ -152,6 +209,14 @@ def has_daily_snapshot_today() -> bool:
 # 기록하도록 창을 좁혔다(1분 주기 크론이므로 이 창 안에서 최소 한 번은 반드시 걸린다).
 _SNAPSHOT_WINDOW_KST_HOUR = 23
 _SNAPSHOT_WINDOW_KST_MINUTE_MIN = 55
+
+# 2026-08-11 추가: 종가 기록값이 튀면(계산 버그, 캐시 문제 등) 투자판단에 바로 영향을
+# 준다. fg_index.csv 4338개 실제 거래일 기준으로 정상 범위를 재보고 문턱을 잡았다:
+# - 일간 변화 절대값 95th/99th percentile: 약 10 / 16 → 여유를 두고 18점 초과면 이상.
+# - price_based vs CNN real 격차 절대값 95th percentile: 약 27 → 여유를 두고 30점
+#   초과면 이상. (평상시 격차 평균은 10.4로, 어느 정도 벌어지는 건 정상이다.)
+JUMP_THRESHOLD = 18
+CNN_GAP_THRESHOLD = 30
 
 
 def is_in_daily_snapshot_window() -> bool:
@@ -190,12 +255,55 @@ if __name__ == "__main__":
         if is_in_daily_snapshot_window() and not has_daily_snapshot_today():
             daily_score = price_based["score"] if price_based else cnn_score
             daily_source_note = "price_based" if price_based else "cnn_real"
+            anomaly_note = None
+
+            if price_based:
+                prev_score = get_previous_daily_snapshot()
+                jump = (daily_score - prev_score) if prev_score is not None else None
+                gap = daily_score - cnn_score
+                is_anomalous = (jump is not None and abs(jump) > JUMP_THRESHOLD) or abs(gap) > CNN_GAP_THRESHOLD
+
+                if is_anomalous:
+                    print(f"이상 감지(전일 대비 {jump}, CNN 대비 {gap:+.2f}) — 한 번 더 계산해서 재확인합니다.")
+                    try:
+                        retry = compute_live_score()
+                        retry_jump = (retry["score"] - prev_score) if prev_score is not None else None
+                        retry_gap = retry["score"] - cnn_score
+                        is_anomalous = (
+                            (retry_jump is not None and abs(retry_jump) > JUMP_THRESHOLD)
+                            or abs(retry_gap) > CNN_GAP_THRESHOLD
+                        )
+                        if not is_anomalous:
+                            daily_score = retry["score"]
+                    except Exception:  # noqa: BLE001
+                        is_anomalous = True
+
+                    if is_anomalous:
+                        detail = diagnose_anomaly()
+                        anomaly_note = (
+                            f"계산값 {daily_score}"
+                            + (f" (전일 대비 {jump:+.1f}점)" if jump is not None else "")
+                            + f", CNN 실제값과 격차 {gap:+.1f}점이라 이상치로 판단해 CNN 실제값"
+                            f"({cnn_score})으로 대체했습니다. {detail}"
+                        )
+                        daily_score = cnn_score
+                        daily_source_note = "cnn_real(이상감지로 대체)"
+                    else:
+                        print(f"재계산 결과 정상 범위 — {daily_score}로 기록합니다.")
+
             rows.append({
                 "as_of": pd.Timestamp.now(tz="UTC").isoformat(),
                 "score": daily_score,
                 "source": "daily_snapshot",
             })
             print(f"오늘의 종가성 일별 계산값 기록: {daily_score} (기준: {daily_source_note})")
+
+            if anomaly_note:
+                print(f"[자동감지] {anomaly_note}")
+                try:
+                    save_signal_note(daily_score, "자동점검", "이상감지", anomaly_note)
+                except Exception as note_exc:  # noqa: BLE001
+                    print(f"이상감지 메모 저장 실패: {note_exc}")
     except Exception as exc:  # noqa: BLE001
         print(f"일별 계산값 저장 확인 실패(다음 실행에 재시도): {exc}")
 
