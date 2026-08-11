@@ -1,0 +1,33 @@
+name: Refresh price cache
+
+# 2026-08-11: price_cache.csv가 20일 넘게 갱신 안 된 채 방치돼서(마지막 2026-07-22),
+# 실시간 F&G 계산이 낡은 과거 데이터로 돌아가 실제와 5점 넘게 벌어지는 원인이 됐다.
+# 매일 자동으로 최신 시세를 받아 커밋해서, 다시는 이렇게 조용히 stale 해지지 않게 한다.
+on:
+  schedule:
+    - cron: "0 6 * * *" # 매일 06:00 UTC(15:00 KST), 미국 정규장 마감 이후
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Refresh price_cache.csv
+        run: python scripts/refresh_price_cache.py
+
+      - name: Commit updated cache if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add scripts/price_cache.csv
+          git diff --cached --quiet && echo "변경 없음, 커밋 스킵" || git commit -m "가격 캐시 자동 갱신"
+          git push
