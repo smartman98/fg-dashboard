@@ -595,7 +595,7 @@
     try {
       const res = await fetch(
         `${SUPABASE_URL}/rest/v1/live_scores?source=eq.price_based&order=computed_at.desc&limit=1`,
-        { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+        { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }, cache: "no-store" }
       );
       if (!res.ok) throw new Error("서버 응답 오류 (" + res.status + ")");
       const rows = await res.json();
@@ -757,7 +757,7 @@
     while (true) {
       const res = await fetch(
         `${SUPABASE_URL}/rest/v1/live_scores?source=eq.${source}&computed_at=gte.${sinceIso}&order=computed_at.desc&limit=${SUPABASE_PAGE_SIZE}&offset=${offset}`,
-        { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+        { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }, cache: "no-store" }
       );
       if (!res.ok) throw new Error("서버 응답 오류 (" + res.status + ")");
       const page = await res.json();
@@ -890,7 +890,7 @@
     try {
       const res = await fetch(
         `${SUPABASE_URL}/rest/v1/signal_notes?order=created_at.desc&limit=20`,
-        { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+        { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }, cache: "no-store" }
       );
       if (!res.ok) throw new Error("서버 응답 오류 (" + res.status + ")");
       const rows = await res.json();
@@ -1017,7 +1017,7 @@
     try {
       const res = await fetch(
         `${SUPABASE_URL}/rest/v1/live_scores?source=eq.cnn_real&order=computed_at.desc&limit=1`,
-        { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+        { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }, cache: "no-store" }
       );
       if (!res.ok) throw new Error("서버 응답 오류 (" + res.status + ")");
       const rows = await res.json();
