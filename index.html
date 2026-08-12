@@ -804,7 +804,19 @@
   async function syncDailyDataFromSupabase() {
     try {
       const lastDate = comparison.length ? comparison[comparison.length - 1].date : "2000-01-01";
-      const sinceIso = new Date(lastDate + "T00:00:00+09:00").toISOString();
+
+      // 2026-08-12 수정(1차: `d > lastDate` → `d >= lastDate`만으로는 부족했다). CNN
+      // 실제값의 as_of 날짜(KST 변환 기준)는 미국 거래일 기준이라, 한국시간 자정을
+      // 넘긴 직후엔 "오늘"(lastDate)보다 하루 전 날짜로 잡힌다 — 그 하루 전 날짜가
+      // 이미 잘못된(하루 이른 시각의 낮은) 값으로 한 번 굳어 있었다면, `>= lastDate`
+      // 필터가 그 과거 날짜를 걸러내서(이미 lastDate보다 작아짐) 영원히 재보정이
+      // 안 된다 — 실측: 8/11이 39.4로 굳어 있었고, 8/12가 그 값을 그대로 물려받음.
+      // 그래서 "오늘"만 보지 않고 최근 며칠을 매번 다시 스캔해서, 언제 새로고침하든
+      // 최근 며칠치가 스스로 재보정되게 한다.
+      const REFRESH_LOOKBACK_DAYS = 4;
+      const lookbackDate = toKstDateStr(new Date(Date.now() - REFRESH_LOOKBACK_DAYS * 86400000));
+      const cursorDate = lastDate < lookbackDate ? lastDate : lookbackDate;
+      const sinceIso = new Date(cursorDate + "T00:00:00+09:00").toISOString();
 
       const [dailyRows, cnnRows] = await Promise.all([
         fetchAllLiveScores(sinceIso, "daily_snapshot"),
@@ -813,13 +825,7 @@
       const dailyByDate = groupLatestByKstDate(dailyRows, "computed_at");
       const cnnByDate = groupLatestByKstDate(cnnRows, "as_of");
 
-      // 2026-08-12 수정: 예전엔 `d > lastDate`라 "오늘(=lastDate)" 자체는 절대 다시 안
-      // 갱신됐다. CNN 실제값은 하루 안에서도 계속 오르내리는데(장중 갱신), 오늘 날짜
-      // 항목이 하루의 이른 시각에 낮은 값으로 한 번 생기고 나면 그 값에 갇혀 있다가,
-      // 자정이 지나 다음 날 항목을 만들 때 그 낡은 값을 그대로 물려받는 버그가 있었다
-      // (사용자 실측: 자정 근처마다 "실제"가 CNN의 최신 장중값이 아니라 갇힌 옛값으로
-      // 보임). `>=`로 바꿔서 오늘 날짜도 매번 최신 cnn_real로 갱신되게 한다.
-      const newDates = new Set([...dailyByDate.keys(), ...cnnByDate.keys()].filter((d) => d >= lastDate));
+      const newDates = new Set([...dailyByDate.keys(), ...cnnByDate.keys()].filter((d) => d >= cursorDate));
       for (const dateStr of newDates) {
         const dailyRow = dailyByDate.get(dateStr);
         const cnnRow = cnnByDate.get(dateStr);
