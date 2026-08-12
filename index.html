@@ -825,28 +825,45 @@
       const dailyByDate = groupLatestByKstDate(dailyRows, "computed_at");
       const cnnByDate = groupLatestByKstDate(cnnRows, "as_of");
 
-      const newDates = new Set([...dailyByDate.keys(), ...cnnByDate.keys()].filter((d) => d >= cursorDate));
+      // 2026-08-12 수정(2차): "오늘"처럼 그 날짜 자체엔 cnn_real이 없는 항목은 예전엔
+      // "항목이 생성되는 그 순간"에만 직전 값을 한 번 물려받고 끝이었다 — 그래서 어제
+      // 값이 나중에 바로잡혀도(예: 8/11 39.4→60.8) 이미 만들어진 오늘 항목은 계속
+      // 낡은 값에 갇혀 있었다(실측: 8/11이 고쳐진 뒤에도 8/12가 여전히 39.4). 날짜
+      // 오름차순으로 처리하면서 매번 "직전 확정값"을 다시 이어받게 바꿨다 — 그래야
+      // 앞 날짜가 이번 실행에서 보정되면 뒷 날짜(오늘)도 곧바로 그 값을 따라간다.
+      // 2026-08-12 수정(3차): "오늘"은 cnn_real도 daily_snapshot도 그 날짜 자체로는
+      // 아예 없는 게 정상이다(CNN이 아직 오늘자 값을 안 냄) — 그래서 newDates가 이
+      // 두 맵의 키에서만 만들어지면 "오늘"은 애초에 이 목록에 들어가지도 않아 위
+      // 재보정 로직을 한 번도 못 탔다(실측: 8/11만 고쳐지고 8/12는 여전히 39.4).
+      // comparison에 이미 있는 최근 날짜도 강제로 포함시켜, 자기 날짜엔 새 데이터가
+      // 없어도 매번 직전 확정값을 다시 이어받도록 한다.
+      const existingDatesInWindow = comparison.filter((row) => row.date >= cursorDate).map((row) => row.date);
+      const newDates = [...new Set([...existingDatesInWindow, ...dailyByDate.keys(), ...cnnByDate.keys()])]
+        .filter((d) => d >= cursorDate)
+        .sort();
+
+      const cursorIdx = comparison.findIndex((row) => row.date >= cursorDate);
+      const beforeCursor = cursorIdx > 0 ? comparison[cursorIdx - 1] : null;
+      let runningReal = beforeCursor ? beforeCursor.real : null;
+      let runningCalc = beforeCursor ? beforeCursor.calculated : null;
+
       for (const dateStr of newDates) {
         const dailyRow = dailyByDate.get(dateStr);
         const cnnRow = cnnByDate.get(dateStr);
 
-        // comparison: 실제/계산 중 이번에 새로 안 들어온 쪽은 직전 값을 이어서 채운다
-        // (표시용, syncComparisonWithLive와 같은 원칙).
-        if (dailyRow || cnnRow) {
-          const prevReal = comparison.length ? comparison[comparison.length - 1].real : null;
-          const prevCalc = comparison.length ? comparison[comparison.length - 1].calculated : null;
-          let entry = comparison.find((row) => row.date === dateStr);
-          if (!entry) {
-            entry = { date: dateStr, real: prevReal, calculated: prevCalc };
-            comparison.push(entry);
-          }
-          if (cnnRow) entry.real = Number(cnnRow.score);
-          if (dailyRow) entry.calculated = Number(dailyRow.score);
+        let entry = comparison.find((row) => row.date === dateStr);
+        if (!entry) {
+          entry = { date: dateStr, real: runningReal, calculated: runningCalc };
+          comparison.push(entry);
         }
+        entry.real = cnnRow ? Number(cnnRow.score) : runningReal;
+        entry.calculated = dailyRow ? Number(dailyRow.score) : runningCalc;
+        runningReal = entry.real;
+        runningCalc = entry.calculated;
 
         // history: CNN 실제값만(2026-07-26 확정 — "F&G 지수차트는 CNN F&G지수 값만 쓰는거야").
-        // comparison과 같은 이유로, 오늘 날짜라도 매번 최신 cnn_real로 덮어써야 한다
-        // (2026-08-12: 예전엔 !find로 한 번 생기면 다신 안 바뀌어 같은 버그가 있었다).
+        // 그 날짜 자체에 실제 cnn_real이 없으면 추가/갱신하지 않는다(직전 값 이어붙이기는
+        // comparison에서만 하고, history는 실제 발표된 날짜만 정직하게 남긴다).
         if (cnnRow) {
           let historyEntry = history.find((row) => row.date === dateStr);
           if (!historyEntry) {
