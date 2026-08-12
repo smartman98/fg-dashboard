@@ -813,7 +813,13 @@
       const dailyByDate = groupLatestByKstDate(dailyRows, "computed_at");
       const cnnByDate = groupLatestByKstDate(cnnRows, "as_of");
 
-      const newDates = new Set([...dailyByDate.keys(), ...cnnByDate.keys()].filter((d) => d > lastDate));
+      // 2026-08-12 수정: 예전엔 `d > lastDate`라 "오늘(=lastDate)" 자체는 절대 다시 안
+      // 갱신됐다. CNN 실제값은 하루 안에서도 계속 오르내리는데(장중 갱신), 오늘 날짜
+      // 항목이 하루의 이른 시각에 낮은 값으로 한 번 생기고 나면 그 값에 갇혀 있다가,
+      // 자정이 지나 다음 날 항목을 만들 때 그 낡은 값을 그대로 물려받는 버그가 있었다
+      // (사용자 실측: 자정 근처마다 "실제"가 CNN의 최신 장중값이 아니라 갇힌 옛값으로
+      // 보임). `>=`로 바꿔서 오늘 날짜도 매번 최신 cnn_real로 갱신되게 한다.
+      const newDates = new Set([...dailyByDate.keys(), ...cnnByDate.keys()].filter((d) => d >= lastDate));
       for (const dateStr of newDates) {
         const dailyRow = dailyByDate.get(dateStr);
         const cnnRow = cnnByDate.get(dateStr);
@@ -833,8 +839,16 @@
         }
 
         // history: CNN 실제값만(2026-07-26 확정 — "F&G 지수차트는 CNN F&G지수 값만 쓰는거야").
-        if (cnnRow && !history.find((row) => row.date === dateStr)) {
-          history.push({ date: dateStr, score: Number(cnnRow.score), source: "cnn_real" });
+        // comparison과 같은 이유로, 오늘 날짜라도 매번 최신 cnn_real로 덮어써야 한다
+        // (2026-08-12: 예전엔 !find로 한 번 생기면 다신 안 바뀌어 같은 버그가 있었다).
+        if (cnnRow) {
+          let historyEntry = history.find((row) => row.date === dateStr);
+          if (!historyEntry) {
+            historyEntry = { date: dateStr, score: Number(cnnRow.score), source: "cnn_real" };
+            history.push(historyEntry);
+          } else {
+            historyEntry.score = Number(cnnRow.score);
+          }
         }
       }
 
