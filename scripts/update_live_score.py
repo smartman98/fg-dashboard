@@ -218,6 +218,32 @@ _SNAPSHOT_WINDOW_KST_MINUTE_MIN = 55
 JUMP_THRESHOLD = 18
 CNN_GAP_THRESHOLD = 30
 
+# 2026-08-12 추가: "종가"뿐 아니라 1분마다 도는 실시간 값도 튈 수 있다(오늘 실측된
+# 5개/8개 모델 전환, 20일 묵은 가격캐시 등). 정상 구간(가격캐시 갱신 후) 39개 표본을
+# 실측한 결과 분당 변화는 평균 0.03, 최대 0.08에 불과했다 — 3점 초과는 35배 이상
+# 여유를 둔 확실한 이상치 기준이다.
+MINUTE_JUMP_THRESHOLD = 3.0
+
+
+def get_previous_price_based_score() -> float | None:
+    """가장 최근에 저장된 price_based 점수를 반환한다(분당 이상치 비교용)."""
+    supabase_url = os.environ["SUPABASE_URL"]
+    supabase_key = os.environ["SUPABASE_KEY"]
+    response = requests.get(
+        f"{supabase_url}/rest/v1/live_scores",
+        headers=_supabase_headers(supabase_key),
+        params={
+            "source": "eq.price_based",
+            "select": "score",
+            "order": "computed_at.desc",
+            "limit": "1",
+        },
+        timeout=20,
+    )
+    response.raise_for_status()
+    rows = response.json()
+    return float(rows[0]["score"]) if rows else None
+
 
 def is_in_daily_snapshot_window() -> bool:
     now_kst = pd.Timestamp.now(tz="UTC") + pd.Timedelta(hours=9)
@@ -231,8 +257,32 @@ if __name__ == "__main__":
     price_based = None
     try:
         price_based = compute_live_score()
-        print(f"가격 기반 계산: {price_based}")
-        rows.append({**price_based, "source": "price_based"})
+        prev_minute_score = get_previous_price_based_score()
+        minute_jump = (price_based["score"] - prev_minute_score) if prev_minute_score is not None else None
+
+        if minute_jump is not None and abs(minute_jump) > MINUTE_JUMP_THRESHOLD:
+            print(f"실시간 값 이상 감지(직전 저장값 대비 {minute_jump:+.2f}) — 한 번 더 계산해서 재확인합니다.")
+            retry = compute_live_score()
+            retry_jump = retry["score"] - prev_minute_score
+            if abs(retry_jump) > MINUTE_JUMP_THRESHOLD:
+                detail = diagnose_anomaly()
+                note = (
+                    f"실시간 계산값 {price_based['score']}가 직전 저장값({prev_minute_score}) 대비 "
+                    f"{minute_jump:+.1f}점 튀어 이상치로 판단해 이번 실행은 저장을 건너뛰었습니다. {detail}"
+                )
+                print(f"[자동감지] {note}")
+                try:
+                    save_signal_note(price_based["score"], "자동점검", "이상감지", note)
+                except Exception as note_exc:  # noqa: BLE001
+                    print(f"이상감지 메모 저장 실패: {note_exc}")
+                price_based = None  # 저장을 건너뛰어 대시보드엔 직전 값이 그대로 유지된다.
+            else:
+                price_based = retry
+                print(f"재계산 결과 정상 범위 — {price_based['score']}로 기록합니다.")
+
+        if price_based:
+            print(f"가격 기반 계산: {price_based}")
+            rows.append({**price_based, "source": "price_based"})
     except Exception as exc:  # noqa: BLE001
         print(f"가격 기반 계산 실패(KIS 오류 등), 이번 실행은 CNN 실제값만 저장합니다: {exc}")
 
