@@ -1,0 +1,25 @@
+name: Test KIS API from cloud (one-off)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Test KIS quote/order/cancel from cloud
+        working-directory: scripts
+        env:
+          KIS_PAPER_APP_KEY: ${{ secrets.KIS_PAPER_APP_KEY }}
+          KIS_PAPER_APP_SECRET: ${{ secrets.KIS_PAPER_APP_SECRET }}
+          KIS_PAPER_STOCK: ${{ secrets.KIS_PAPER_STOCK }}
+        run: python test_kis_cloud.py
