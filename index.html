@@ -703,6 +703,29 @@
   // "그 이후" 날짜를, 이제 매일 자동으로 쌓이는 Supabase의 daily_snapshot(계산값)/
   // cnn_real(실제값)로 채운다 — build_index.py를 다시 안 돌려도 두 차트가 매일 자동으로
   // 이어진다(2026-07-27, "일별 계산치는 꼭 저장해야된다" 후속 작업).
+  // cnn_real은 5분마다 값이 안 바뀌어도 새 행을 쌓아서(2026-09-14 기준 7만 6천행+)
+  // fetchAllLiveScores로 몇 달치를 받으면 77번 넘게 순차 페이지네이션을 해야 했다 —
+  // 그러다 중간에 실패하면 syncDailyDataFromSupabase의 catch가 조용히 삼켜서, 비교
+  // 차트가 몇 달째 갱신 안 되는 걸 아무도 몰랐다(2026-09-14 사용자 지적: "최신화가
+  // 안되어있어요"). Supabase에 하루당 최신값 하나만 주는 cnn_real_daily/
+  // daily_snapshot_daily 함수를 만들어두고 그걸 한 번씩만 부른다 — 함수가 없는
+  // 환경에서는 예전 방식(fetchAllLiveScores)으로 자동 대체한다.
+  async function fetchDailyRpc(fnName, days) {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fnName}`, {
+      method: "POST",
+      headers: {
+        apikey: SUPABASE_KEY,
+        Authorization: `Bearer ${SUPABASE_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ target_days: days }),
+      cache: "no-store",
+    });
+    if (!res.ok) throw new Error("RPC 없음 또는 오류 (" + res.status + ")");
+    const rows = await res.json();
+    return new Map(rows.map((r) => [r.day, { score: r.score }]));
+  }
+
   async function syncDailyDataFromSupabase() {
     try {
       const lastDate = comparison.length ? comparison[comparison.length - 1].date : "2000-01-01";
@@ -720,12 +743,28 @@
       const cursorDate = lastDate < lookbackDate ? lastDate : lookbackDate;
       const sinceIso = new Date(cursorDate + "T00:00:00+09:00").toISOString();
 
-      const [dailyRows, cnnRows] = await Promise.all([
-        fetchAllLiveScores(sinceIso, "daily_snapshot"),
-        fetchAllLiveScores(sinceIso, "cnn_real"),
-      ]);
-      const dailyByDate = groupLatestByKstDate(dailyRows, "computed_at");
-      const cnnByDate = groupLatestByKstDate(cnnRows, "as_of");
+      // cursorDate가 몇 달 전(예: 정적 파일이 오래돼서)이어도 다 따라잡을 수 있게,
+      // 필요한 일수만큼 넉넉히(+10일 여유) 요청한다.
+      const gapDays = Math.max(
+        REFRESH_LOOKBACK_DAYS + 1,
+        Math.ceil((Date.now() - new Date(cursorDate + "T00:00:00+09:00").getTime()) / 86400000) + 10
+      );
+
+      let dailyByDate, cnnByDate;
+      try {
+        [dailyByDate, cnnByDate] = await Promise.all([
+          fetchDailyRpc("daily_snapshot_daily", gapDays),
+          fetchDailyRpc("cnn_real_daily", gapDays),
+        ]);
+      } catch {
+        // RPC 함수가 아직 안 만들어진 환경 — 예전 방식으로 대체
+        const [dailyRows, cnnRows] = await Promise.all([
+          fetchAllLiveScores(sinceIso, "daily_snapshot"),
+          fetchAllLiveScores(sinceIso, "cnn_real"),
+        ]);
+        dailyByDate = groupLatestByKstDate(dailyRows, "computed_at");
+        cnnByDate = groupLatestByKstDate(cnnRows, "as_of");
+      }
 
       // 2026-08-12 수정(2차): "오늘"처럼 그 날짜 자체엔 cnn_real이 없는 항목은 예전엔
       // "항목이 생성되는 그 순간"에만 직전 값을 한 번 물려받고 끝이었다 — 그래서 어제
@@ -1128,22 +1167,25 @@
     return comparison.filter((row) => row.date >= cutoff);
   }
 
+  // 기간 전체 평균 차이 대신, 마우스로 가리킨 그 날짜의 차이를 보여준다
+  // (2026-09-14 사용자 요청 — "선택기간 평균차이로 하지 말고 그 시기 F&G값과
+  // 일별 계산값 차이를 넣어줘요").
   function renderDiffStat(data) {
     const statEl = document.getElementById("diff-stat");
-    if (data.length === 0) {
-      statEl.textContent = "";
-      return;
-    }
-    const diffs = data.map((d) => d.calculated - d.real);
-    const avg = diffs.reduce((a, b) => a + b, 0) / diffs.length;
-    const direction = avg > 0.5 ? "높게" : avg < -0.5 ? "낮게" : "비슷하게";
+    statEl.textContent = data.length === 0 ? "" : "차트를 가리키면 그 날짜의 차이를 보여줘요.";
+  }
+
+  function updateDiffStatForRow(row) {
+    const statEl = document.getElementById("diff-stat");
+    const diff = row.calculated - row.real;
+    const direction = diff > 0.5 ? "높음" : diff < -0.5 ? "낮음" : "비슷함";
     statEl.innerHTML = "";
     const text = document.createElement("span");
-    text.textContent = "선택 기간 평균 차이: ";
+    text.textContent = `${row.date} 차이: `;
     const strong = document.createElement("strong");
-    strong.textContent = (avg >= 0 ? "+" : "") + avg.toFixed(1) + "점";
+    strong.textContent = (diff >= 0 ? "+" : "") + diff.toFixed(1) + "점";
     const tail = document.createElement("span");
-    tail.textContent = ` (일별 계산값이 F&G보다 ${direction} 나옴)`;
+    tail.textContent = ` (일별 계산값이 F&G보다 ${direction})`;
     statEl.appendChild(text);
     statEl.appendChild(strong);
     statEl.appendChild(tail);
@@ -1228,6 +1270,7 @@
       crosshair.setAttribute("visibility", "visible");
 
       const row = data[idx];
+      updateDiffStatForRow(row);
       tooltip.style.opacity = "1";
       tooltip.innerHTML = "";
       const dateLine = document.createElement("div");
@@ -1262,6 +1305,7 @@
     function hideTooltip() {
       crosshair.setAttribute("visibility", "hidden");
       tooltip.style.opacity = "0";
+      renderDiffStat(data);
     }
 
     hitArea.addEventListener("pointermove", (e) => showTooltipAt(e.clientX));
