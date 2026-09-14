@@ -1290,10 +1290,17 @@
       calcStrong.textContent = row.calculated.toFixed(1);
       calcLine.appendChild(document.createTextNode("계산 "));
       calcLine.appendChild(calcStrong);
+      const diffLine = document.createElement("div");
+      const diffStrong = document.createElement("span");
+      diffStrong.className = "tt-value";
+      diffStrong.textContent = Math.abs(row.calculated - row.real).toFixed(1);
+      diffLine.appendChild(document.createTextNode("차이 "));
+      diffLine.appendChild(diffStrong);
 
       tooltip.appendChild(dateLine);
       tooltip.appendChild(realLine);
       tooltip.appendChild(calcLine);
+      tooltip.appendChild(diffLine);
 
       const svgPixelRect = svg.getBoundingClientRect();
       const scaleX = svgPixelRect.width / CHART_W;
